@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <string.h>
 #define CMDSIZE 100
@@ -16,23 +17,53 @@ void peek(char**ps,char*es,char*toks)
     return *s && strchr(toks,*s); 
 }
 
-char gettoken(char**ps,char*es,char*content)
+void gettoken(char**ps,char*es,char**content)
 {
-    char* p= ps;
-    peek(ps,es,"");
-    if (p<es && strchr())
-    {
+    char* p= *ps;
+    char* s;
+    //char token;
+    peek(p,es,"");
     
+    switch(*p)
+    {
+        
+        case 0:break;
+        case '|':
+        case '&':
+        case '<':
+        case ';':
+        case '(':
+        case ')':
+               p++;
+               break;
+        case '>':
+               p++;
+               if (*p=='>')
+               {
+                   p++;
+                   //token='+';
+               }
+               break;
+        
     }
-
-    while(p<es && strchr(symbols,*p))
+    peek(p,es,"");
+    if (!content) return;
+    s=p;
+    while(p<es && !strchr(symbols,*p))
         p++;
+    len=strlen(s)-strlen(p)+1;   //98s654p21'0' s-p:7-3+1=4+1=5
+
+    char* cont = (char*)malloc(sizeof(char)*(len+1));
+    snprintf(cont,len+1,"%s",s);
+    *content=cont;
 }
 
 
 
 void getcmd(char* buf);
 void analyze(char* buf);
+void parseline(char** ps,char* es);
+void parsepipe(char** ps,char* es);
 
 struct cmd{
     int type;
@@ -58,8 +89,15 @@ struct listcmd{
     struct cmd* left;
     struct cmd* right;
 };
+struct backcmd{
+    int type;
+    struct cmd* cmd;
+}
 
-
+struct cmd* makeback()
+{
+    
+}
 void makeexec()
 {
     
@@ -88,12 +126,23 @@ void getcmd(char* buf)
 }
 void analyze(char* buf)
 {
-    char*p,*q,*es;
-    *p=*q=buf;
-    *es=p+strlen(buf);
+    char *ps,*es;
+    ps = buf;
+    *es=ps+strlen(buf);
+    parsekline(&ps,es);
+}
+void parseline(char**ps,char*es)
+{
+    char*p = *ps;
+    struct cmd* cmd;
 
     peek(p,es,""); // skip the whitespace
     
+    cmd = parsepipe(ps,es);
+    if (peek(ps,es,"&"))
+    {
+         cmd = 
+    }
 
 
 
