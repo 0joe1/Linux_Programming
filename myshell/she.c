@@ -5,6 +5,12 @@
 #define CMDSIZE 100
 #define MAXARGS 10
 
+#define EXEC 1
+#define BACK 2
+#define REDIR 3
+#define PIPE 4 
+
+
 char whitespace[]="\t\r\n\v";
 char symbols[] = "<|>&;()";
 
@@ -33,6 +39,7 @@ void gettoken(char**ps,char*es,char**content)
         case '<':
         case ';':
         case '(':
+
         case ')':
                p++;
                break;
@@ -94,9 +101,15 @@ struct backcmd{
     struct cmd* cmd;
 }
 
-struct cmd* makeback()
+struct cmd* makeback(struct cmd* subcmd)
 {
-    
+    struct backcmd* backcmd;
+    backcmd = (struct backcmd*)malloc(sizeof(struct backcmd));
+    memset(backcmd,0,sizeof(*backcmd));
+
+    backcmd->type = BACK;
+    backcmd->cmd=subcmd;
+    return (struct cmd*)backcmd;
 }
 void makeexec()
 {
@@ -141,8 +154,9 @@ void parseline(char**ps,char*es)
     cmd = parsepipe(ps,es);
     if (peek(ps,es,"&"))
     {
-         cmd = 
+         cmd = makeback(cmd);
     }
+    if ()
 
 
 
