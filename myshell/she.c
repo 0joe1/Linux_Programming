@@ -4,19 +4,60 @@
 #define CMDSIZE 100
 #define MAXARGS 10
 
+char whitespace[]="\t\r\n\v";
+char symbols[] = "<|>&;()";
+
+void peek(char**ps,char*es,char*toks)
+{
+    char*s=*ps;
+    while (s<es && strchr(whitespace,*s))
+        s++;
+    *ps=s;
+    return *s && strchr(toks,*s); 
+}
+
+char gettoken(char**ps,char*es,char*content)
+{
+    char* p= ps;
+    peek(ps,es,"");
+    if (p<es && strchr())
+    {
+    
+    }
+
+    while(p<es && strchr(symbols,*p))
+        p++;
+}
+
+
 
 void getcmd(char* buf);
 void analyze(char* buf);
 
-
+struct cmd{
+    int type;
+};
 struct execcmd{
     int type;
     char* arglt[MAXARGS];
-}
+};
 struct redircmd{
     int type;
-
-}
+    int oldfd;
+    int mode;
+    char newfile[200];
+    struct cmd* cmd;
+};
+struct pipecmd{
+    int type;
+    struct cmd* left;
+    struct cmd* right;
+};
+struct listcmd{
+    int type;
+    struct cmd* left;
+    struct cmd* right;
+};
 
 
 void makeexec()
@@ -47,11 +88,18 @@ void getcmd(char* buf)
 }
 void analyze(char* buf)
 {
-    char symbols[] = "<|>&;";
     char*p,*q,*es;
     *p=*q=buf;
     *es=p+strlen(buf);
 
+    peek(p,es,""); // skip the whitespace
+    
+
+
+
+
+
+    /*
     char* t;
     while (*p)
     {
@@ -64,4 +112,6 @@ void analyze(char* buf)
         }
 
     }
+    */
+
 }
