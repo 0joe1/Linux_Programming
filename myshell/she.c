@@ -9,7 +9,7 @@
 #define BACK 2
 #define REDIR 3
 #define PIPE 4 
-
+#define LIST 5
 
 char whitespace[]="\t\r\n\v";
 char symbols[] = "<|>&;()";
@@ -111,6 +111,18 @@ struct cmd* makeback(struct cmd* subcmd)
     backcmd->cmd=subcmd;
     return (struct cmd*)backcmd;
 }
+struct cmd* makelist(struct cmd* subcmd1,struct cmd* subcmd2)
+{
+    struct listcmd* listcmd;
+    listcmd = (struct listcmd*)malloc(sizeof(struct listcmd));
+    memset(listcmd,0,sizeof(*listcmd));
+
+    listcmd->type = LIST;
+    listcmd->left = subcmd1;
+    listcmd->right = subcmd2;
+
+    return (struct cmd*)listcmd;
+}
 void makeexec()
 {
     
@@ -156,7 +168,10 @@ void parseline(char**ps,char*es)
     {
          cmd = makeback(cmd);
     }
-    if ()
+    if (peek(ps,es,";"))
+    {
+        cmd = makelist(cmd)
+    }
 
 
 
