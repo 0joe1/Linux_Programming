@@ -28,17 +28,19 @@ void peek(char**ps,char*es,char*toks)
     return *s && strchr(toks,*s); 
 }
 
-void gettoken(char**ps,char*es,char**content)
+char gettoken(char**ps,char*es,char**content)
 {
     char* p= *ps;
     char* s;
-    //char token;
+    char ret;
     peek(p,es,"");
     
+    ret=*p;
     switch(*p)
     {
         
         case 0:break;
+        /*
         case '|':
         case '&':
         case '<':
@@ -48,18 +50,24 @@ void gettoken(char**ps,char*es,char**content)
         case ')':
                p++;
                break;
+               */
         case '>':
                p++;
                if (*p=='>')
                {
+                   ret='+';
                    p++;
-                   //token='+';
                }
+               else ret='n';
                break;
+        defalt:
+               ret='a';
+               p++;
+
         
     }
     peek(p,es,"");
-    if (!content) return;
+    if (!content) return ret;
     s=p;
     while(p<es && !strchr(symbols,*p))
         p++;
@@ -68,6 +76,8 @@ void gettoken(char**ps,char*es,char**content)
     char* cont = (char*)malloc(sizeof(char)*(len+1));
     snprintf(cont,len+1,"%s",s);
     *content=cont;
+
+    return ret;
 }
 
 
@@ -128,6 +138,24 @@ struct cmd* makelist(struct cmd* subcmd1,struct cmd* subcmd2)
 
     return (struct cmd*)listcmd;
 }
+struct cmd* makepipe(struct cmd* subcmd1,struct cmd* subcmd2)
+{
+    struct pipecmd* pipecmd;
+    pipecmd = (struct pipecmd*)malloc(sizeof(struct pipecmd));
+    memset(pipecmd,0,sizeof((*pipecmd)));
+
+    pipecmd->type = PIPE;
+    pipecmd->left = subcmd1;
+    pipecmd->right = subcmd2;
+
+    return (struct cmd*)pipecmd;
+}
+struct cmd* makeredir(struct cmd* subcmd)
+{
+    struct redircmd* redircmd;
+    redircmd = (struct redircmd*)malloc(sizeof(struct redircmd));
+
+}
 void makeexec()
 {
     
@@ -182,7 +210,7 @@ void analyze(char* buf)
     *es=ps+strlen(buf);
     parseline(&ps,es);
 }
-void parseline(char**ps,char*es)
+struct cmd* parseline(char**ps,char*es)
 {
     char*p = *ps;
     struct cmd* cmd;
@@ -192,16 +220,18 @@ void parseline(char**ps,char*es)
     cmd = parsepipe(ps,es);
     if (peek(&p,es,"&"))
     {
-         cmd = makeback(cmd);
-         p++;
+        cmd = makeback(cmd);
+        p++;
+        peek(&p,es,"");
     }
-    peek(&p,es,"");
     if (peek(&p,es,";"))
     {
-        cmd = makelist(cmd,parseline(ps,es,));
+        cmd = makelist(cmd,parseline(ps,es));
         p++;
+        peek(&p,es,"");
     }
 
+    return cmd;
 }
 void parsepipe(char**ps,char*es)
 {
@@ -210,6 +240,26 @@ void parsepipe(char**ps,char*es)
 
     cmd=parseredir(&p,es);
     if (peek(&p,es,"|"))
-        parsepipe(cmd,parsepipe(&p,es));
-    
+    {  
+        cmd = makepipe(cmd,parsepipe(&p,es));
+        p++;
+    }
+    peek(&p,es,"");
+}
+void parseredir(char**ps,char*es)
+{
+    char*p=*ps;
+    struct cmd* cmd;
+
+    cmd=parseexec(&p,es);
+    if (peek(&p,es,"><"))
+    {
+        char sym;
+        char filename[200];
+        
+        sym = gettoken(&ps,es,filename);
+
+
+        cmd = makeredir(oldfd,newfile,cmd);
+    }
 }
