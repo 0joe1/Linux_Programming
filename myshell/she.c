@@ -40,7 +40,6 @@ char gettoken(char**ps,char*es,char**content)
     {
         
         case 0:break;
-        /*
         case '|':
         case '&':
         case '<':
@@ -50,7 +49,6 @@ char gettoken(char**ps,char*es,char**content)
         case ')':
                p++;
                break;
-               */
         case '>':
                p++;
                if (*p=='>')
@@ -58,13 +56,10 @@ char gettoken(char**ps,char*es,char**content)
                    ret='+';
                    p++;
                }
-               else ret='n';
                break;
         defalt:
                ret='a';
                p++;
-
-        
     }
     peek(p,es,"");
     if (!content) return ret;
@@ -98,7 +93,7 @@ struct redircmd{
     int type;
     int oldfd;
     int mode;
-    char newfile[200];
+    char* newfile;
     struct cmd* cmd;
 };
 struct pipecmd{
@@ -150,11 +145,19 @@ struct cmd* makepipe(struct cmd* subcmd1,struct cmd* subcmd2)
 
     return (struct cmd*)pipecmd;
 }
-struct cmd* makeredir(struct cmd* subcmd)
+struct cmd* makeredir(int oldfd,char* newfile,int mode,struct cmd* subcmd)
 {
     struct redircmd* redircmd;
     redircmd = (struct redircmd*)malloc(sizeof(struct redircmd));
+    memset(redircmd,0,sizeof(*redircmd));
 
+    redircmd->type = REDIR;
+    redircmd->oldfd=oldfd;
+    redircmd->newfile=newfile;
+    redircmd->mode=mode;
+    redircmd->cmd=subcmd;
+
+    return (struct cmd*)redircmd;
 }
 void makeexec()
 {
@@ -177,6 +180,7 @@ int main(void)
 
 void runcmd(struct cmd* cmd)
 {
+    int p[2];
     struct listcmd* listcmd;
     struct backcmd* backcmd;
     switch(cmd->type){
@@ -192,7 +196,33 @@ void runcmd(struct cmd* cmd)
             if (fork()==0)
                 runcmd(backcmd->cmd);
             break;
+        case PIPE:
+            pipecmd=(struct pipecmd*)cmd;
+            pipe(p);
+            if (fork()==0)
+            {
+                dup2(1,p[1]);
+                runcmd(pipecmd->left);
+            }
+            if (fork()==0)
+            {
+                dup2(0,p[0]);
+                runcmd(pipecmd->right);
+            }
+            close(p[0]);
+            close(p[1]);
+            wait();
+            wait();
+            break;
+        case REDIR:
+            redircmd=(struct redircmd*)cmd;
 
+            close(redircmd->oldfd);
+            open(redircmd->filename,redircmd->mode);
+            runcmd(redircmd->cmd);
+            break;
+            
+            
     }
 }
 
@@ -233,7 +263,7 @@ struct cmd* parseline(char**ps,char*es)
 
     return cmd;
 }
-void parsepipe(char**ps,char*es)
+struct cmd* parsepipe(char**ps,char*es)
 {
     char* p=*ps;
     struct cmd* cmd;
@@ -245,21 +275,44 @@ void parsepipe(char**ps,char*es)
         p++;
     }
     peek(&p,es,"");
+
+    return cmd;
 }
-void parseredir(char**ps,char*es)
+struct cmd* parseredir(char**ps,char*es)
 {
     char*p=*ps;
     struct cmd* cmd;
 
     cmd=parseexec(&p,es);
-    if (peek(&p,es,"><"))
+    while (peek(&p,es,"><"))
     {
-        char sym;
-        char filename[200];
+        char token;
+        char* filename;
         
-        sym = gettoken(&ps,es,filename);
-
-
-        cmd = makeredir(oldfd,newfile,cmd);
+        token = gettoken(&ps,es,&filename);
+        switch(token)
+        {
+            case '<':
+                cmd=makeredir(0,filename,O_RDONLY,cmd);
+                break;
+            case '>':
+                cmd=makeredir(1,filename,O_WRONLY|O_CREAT|O_TRUNC,cmd);
+                break;
+            case '+':
+                cmd=makeredir(1,filename,O_WRONLY|O_CREAT|O_APPEND,cmd);
+                break;
+        }
     }
+    return cmd;
+}
+struct cmd* parseexec(char**ps,char*es)
+{
+    char*p=*ps;
+    char* filename;
+    char* command;
+
+    gettoken(&p,es,command);
+
+    
+    
 }
