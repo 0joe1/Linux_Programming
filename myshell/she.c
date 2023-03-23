@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #define CMDSIZE 100
 #define MAXARGS 10
 
@@ -19,7 +23,7 @@ void perr(char *s)
     printf("%s:something wrong",s);
 }
 
-void peek(char**ps,char*es,char*toks)
+int peek(char**ps,char*es,char*toks)
 {
     char*s=*ps;
     while (s<es && strchr(whitespace,*s))
@@ -33,7 +37,7 @@ char gettoken(char**ps,char*es,char**content)
     char* p= *ps;
     char* s;
     char ret;
-    peek(p,es,"");
+    peek(&p,es,"");
     
     ret=*p;
     switch(*p)
@@ -61,11 +65,12 @@ char gettoken(char**ps,char*es,char**content)
                ret='a';
                p++;
     }
-    peek(p,es,"");
+    peek(&p,es,"");
     if (!content) return ret;
     s=p;
     while(p<es && !strchr(symbols,*p))
         p++;
+    int len;
     len=strlen(s)-strlen(p);   //98s654p21'0' s-p:7-3=4
 
     char* cont = (char*)malloc(sizeof(char)*(len+1));
@@ -75,16 +80,14 @@ char gettoken(char**ps,char*es,char**content)
     return ret;
 }
 
-
-void runcmd(struct cmd* cmd);
-void getcmd(char* buf);
-void analyze(char* buf);
-void parseline(char** ps,char* es);
-void parsepipe(char** ps,char* es);
-
 struct cmd{
     int type;
 };
+
+void runcmd(struct cmd* cmd);
+int getcmd(char* buf);
+struct cmd* analyze(char* buf);
+
 struct execcmd{
     int type;
     char* arglt[MAXARGS];
@@ -109,7 +112,11 @@ struct listcmd{
 struct backcmd{
     int type;
     struct cmd* cmd;
-}
+};
+struct cmd*parseline(char** ps,char* es);
+struct cmd*parsepipe(char** ps,char* es);
+struct cmd*parseexec(char** ps,char* es);
+struct cmd*parseredir(char** ps,char* es);
 
 struct cmd* makeback(struct cmd* subcmd)
 {
@@ -159,9 +166,16 @@ struct cmd* makeredir(int oldfd,char* newfile,int mode,struct cmd* subcmd)
 
     return (struct cmd*)redircmd;
 }
-void makeexec()
+struct cmd* makeexec(int argc,char* argv[])
 {
-    
+    struct execcmd* execcmd;    
+    execcmd = (struct execcmd*)malloc(sizeof(struct execcmd));
+
+    execcmd->type = EXEC;
+    for (int i=0;i<argc;i++)
+        strcpy(execcmd->arglt[i],argv[i]);
+
+    return (struct cmd*)execcmd;
 }
 
 
@@ -174,21 +188,33 @@ int main(void)
     sigaddset(&blockmask,SIGINT);
     sigprocmask(SIG_SETMASK,&blockmask,NULL);
 
-    
+    char buf[100];
+    while (getcmd(buf))
+    {
+        runcmd(analyze(buf));
+    }
     return 0;
 }
 
 void runcmd(struct cmd* cmd)
 {
     int p[2];
+    struct execcmd* execcmd;
     struct listcmd* listcmd;
     struct backcmd* backcmd;
+    struct pipecmd* pipecmd;
+    struct redircmd* redircmd;
+
     switch(cmd->type){
+        case EXEC:
+            execcmd=(struct execcmd*)cmd;
+            execvp(execcmd->arglt[0],execcmd->arglt);
+            break;
         case LIST:
             listcmd=(struct listcmd*)cmd;
             if (fork()==0)
                 runcmd(listcmd->left);
-            wait();
+            wait(NULL);
             runcmd(listcmd->right);
             break;
         case BACK:
@@ -211,34 +237,36 @@ void runcmd(struct cmd* cmd)
             }
             close(p[0]);
             close(p[1]);
-            wait();
-            wait();
+            wait(NULL);
+            wait(NULL);
             break;
         case REDIR:
             redircmd=(struct redircmd*)cmd;
 
             close(redircmd->oldfd);
-            open(redircmd->filename,redircmd->mode);
+            open(redircmd->newfile,redircmd->mode);
             runcmd(redircmd->cmd);
             break;
-            
-            
     }
+    exit(0);
 }
 
-void getcmd(char* buf)
+int getcmd(char* buf)
 {
     printf("%s","$ ");
     fgets(buf,CMDSIZE,stdin);
     buf[strlen(buf)-1] = '\0';
-    return;
+    if (buf[0]=='\0') return 0;
+    return 1;
 }
-void analyze(char* buf)
+struct cmd* analyze(char* buf)
 {
+    struct cmd* cmd;
     char *ps,*es;
     ps = buf;
-    *es=ps+strlen(buf);
-    parseline(&ps,es);
+    es=ps+strlen(buf);
+    cmd=parseline(&ps,es);
+    return cmd;
 }
 struct cmd* parseline(char**ps,char*es)
 {
@@ -289,7 +317,7 @@ struct cmd* parseredir(char**ps,char*es)
         char token;
         char* filename;
         
-        token = gettoken(&ps,es,&filename);
+        token = gettoken(&p,es,&filename);
         switch(token)
         {
             case '<':
@@ -307,12 +335,21 @@ struct cmd* parseredir(char**ps,char*es)
 }
 struct cmd* parseexec(char**ps,char*es)
 {
+    struct cmd* cmd;
     char*p=*ps;
-    char* filename;
-    char* command;
+    char* command,*token;
 
-    gettoken(&p,es,command);
+    int argc=0;
+    char* argv[MAXARGS];
 
-    
-    
+    gettoken(&p,es,&command);
+    token=strtok(command,whitespace);
+    while(token != NULL)
+    {
+        argv[argc++]=token;
+        token=strtok(NULL,whitespace);
+    }
+    cmd = makeexec(argc,argv); 
+
+    return cmd;
 }
