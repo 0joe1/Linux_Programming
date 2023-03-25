@@ -205,15 +205,21 @@ int main(void)
     sigaddset(&blockmask,SIGINT);
     sigprocmask(SIG_SETMASK,&blockmask,NULL);
 
-    char buf[100];
-    int te=3;
+    char *buf=(char*)malloc(sizeof(char)*300);
     struct cmd* cmd;
     while (getcmd(buf))
     {   
+        while (*buf && strchr(whitespace,*buf))
+            buf++;
+        if (buf[0]=='c' && buf[1]=='d' && buf[2]==' ')
+        {
+            chdir(buf+3);
+        }
         if (fork()==0)
             runcmd(analyze(buf));
         wait(NULL);
     }
+    free(buf);
     return 0;
 }
 
