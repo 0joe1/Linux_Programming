@@ -42,7 +42,6 @@ char gettoken(char**ps,char*es,char**content)
     ret=*p;
     switch(*p)
     {
-        
         case 0:break;
         case '|':
         case '&':
@@ -209,12 +208,11 @@ int main(void)
     char buf[100];
     int te=3;
     struct cmd* cmd;
-    while (te-->0)
+    while (getcmd(buf))
     {   
-        getcmd(buf);
-        cmd=analyze(buf);
-        test(cmd);
-        //runcmd();
+        if (fork()==0)
+            runcmd(analyze(buf));
+        wait(NULL);
     }
     return 0;
 }
@@ -250,12 +248,16 @@ void runcmd(struct cmd* cmd)
             pipe(p);
             if (fork()==0)
             {
-                dup2(1,p[1]);
+                dup2(p[1],1);
+                close(p[1]);
+                close(p[0]);
                 runcmd(pipecmd->left);
             }
             if (fork()==0)
             {
-                dup2(0,p[0]);
+                dup2(p[0],0);
+                close(p[0]);
+                close(p[1]);
                 runcmd(pipecmd->right);
             }
             close(p[0]);
@@ -265,11 +267,12 @@ void runcmd(struct cmd* cmd)
             break;
         case REDIR:
             redircmd=(struct redircmd*)cmd;
-
             close(redircmd->oldfd);
             open(redircmd->newfile,redircmd->mode);
+            runcmd(redircmd->cmd);
             break;
     }
+    exit(1);
 }
 
 int getcmd(char* buf)
@@ -296,7 +299,7 @@ struct cmd* parseline(char**ps,char*es)
 
     peek(&p,es,""); // skip the whitespace
     
-    cmd = parsepipe(ps,es);
+    cmd = parsepipe(&p,es);
     if (peek(&p,es,"&"))
     {
         cmd = makeback(cmd);
@@ -305,7 +308,7 @@ struct cmd* parseline(char**ps,char*es)
     }
     if (peek(&p,es,";"))
     {
-        cmd = makelist(cmd,parseline(ps,es));
+        cmd = makelist(cmd,parseline(&p,es));
         p++;
         peek(&p,es,"");
     }
@@ -335,7 +338,6 @@ struct cmd* parseredir(char**ps,char*es)
     struct cmd* cmd;
 
     cmd=parseexec(&p,es);
-    printf("%c",*p);
 
     while (peek(&p,es,"><"))
     {
