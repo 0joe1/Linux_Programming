@@ -196,6 +196,8 @@ void test(struct cmd* cmd) {
     }
 }
 
+char prepath[500];
+
 int main(void)
 {
     sigset_t blockmask;
@@ -207,13 +209,23 @@ int main(void)
 
     char *buf=(char*)malloc(sizeof(char)*300);
     struct cmd* cmd;
+
+    getcwd(prepath,sizeof(prepath));
     while (getcmd(buf))
     {   
         while (*buf && strchr(whitespace,*buf))
             buf++;
         if (buf[0]=='c' && buf[1]=='d' && buf[2]==' ')
         {
-            chdir(buf+3);
+            char path[500];
+            switch(*(buf+3))
+            {
+                case '~':strcpy(path,"/home/username");break;
+                case '-':strcpy(path,prepath);break;
+                default: strcpy(path,buf+3);
+            }
+            chdir(path);
+            strcpy(path,prepath);
         }
         if (fork()==0)
             runcmd(analyze(buf));
