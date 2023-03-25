@@ -213,6 +213,9 @@ int main(void)
     getcwd(prepath,sizeof(prepath));
     while (getcmd(buf))
     {   
+        /*if (buf[0]='\0')
+            continue;*/
+
         while (*buf && strchr(whitespace,*buf))
             buf++;
         if (buf[0]=='c' && buf[1]=='d' && buf[2]==' ')
@@ -298,7 +301,7 @@ int getcmd(char* buf)
     printf("%s","$ ");
     fgets(buf,CMDSIZE,stdin);
     buf[strlen(buf)-1] = '\0';
-    if (buf[0]=='\0') return 0;
+    if (strcmp(buf,"exit")==0) return 0;
     return 1;
 }
 struct cmd* analyze(char* buf)
