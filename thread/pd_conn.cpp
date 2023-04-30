@@ -61,6 +61,17 @@ public:
 
         return ret;
     }
-    virtual ~SPSCQueue() = 0;
+    virtual ~SPSCQueue(){
+        pthread_mutex_destroy(&mtx);
+        pthread_cond_destroy(&cond_n);
+        pthread_cond_destroy(&cond_f);
+    }
 };
 
+void producer()
+
+int main(void)
+{
+    
+    return 0;
+}
