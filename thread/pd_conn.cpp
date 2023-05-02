@@ -3,16 +3,9 @@
 #include <memory>
 #include <queue>
 
+#define N 10
+
 using namespace std;
-
-//class product{
-//public:
-//    int data;
-//    bool add(int data){
-//
-//    }
-//}
-
 
 template<class T>
 class SPSCQueue {
@@ -68,10 +61,37 @@ public:
     }
 };
 
-void producer()
+void* producer(SPSCQueue<int>& q)
+{
+    cout <<"create a producer thread" <<endl;
+    for (int i=0;i<N;i++)
+    {
+        unique_ptr<int> item(new int(i));
+        q.Push(std::move(item));
+        cout << "produced item " << i << endl;
+    }
+}
+
+void consumer(SPSCQueue<int>& q)
+{
+    cout << "create a consumer thread" <<endl;
+    for (int i=0;i<N;i++)
+    {
+        unique_ptr<int> item=q.pop();
+        cout << "consumed item " << *item<<endl;
+    }
+}
 
 int main(void)
 {
+    int totThreads=N;
+    SPSCQueue<int> queue(7);
+    pthread_t producer_thread,consumer_thread;
+    pthread_create(&producer_thread,NULL,producer,&queue);
+    pthread_create(&consumer_thread,NULL,consumer,&queue);
     
+    producer(queue);
+    consumer(queue);
+
     return 0;
 }
