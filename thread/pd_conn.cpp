@@ -1,7 +1,9 @@
 #include <iostream>
+#include <utility>
 #include <pthread.h>
 #include <memory>
 #include <queue>
+
 
 #define N 10
 
@@ -17,7 +19,7 @@ private:
     pthread_cond_t cond_f = PTHREAD_COND_INITIALIZER;
 
 public:
-    explicit SPSCQueue(int capacity)
+    explicit SPSCQueue(size_t capacity)
         :cap(capacity){}
 
     virtual bool Push(std::unique_ptr<T> item){
@@ -41,11 +43,11 @@ public:
         pthread_mutex_lock(&mtx);
 
         //若空，则阻塞等待生产者生产
-        while (line.size==0)
+        while (line.size()==0)
             pthread_cond_wait(&cond_n,&mtx);
 
         //消费，若原来是满的就提醒生产者又可以生产了
-        unique_ptr<T> ret = line.front();
+        unique_ptr<T> ret = std::move(line.front());
         line.pop();
         if (line.size()==cap-1)
             pthread_cond_signal(&cond_f);
@@ -61,37 +63,40 @@ public:
     }
 };
 
-void* producer(SPSCQueue<int>& q)
+void* producer(void* arg)
 {
+    SPSCQueue<int>* q = static_cast<SPSCQueue<int>*> (arg);
     cout <<"create a producer thread" <<endl;
     for (int i=0;i<N;i++)
     {
         unique_ptr<int> item(new int(i));
-        q.Push(std::move(item));
+        q->Push(std::move(item));
         cout << "produced item " << i << endl;
     }
+    return 0;
 }
 
-void consumer(SPSCQueue<int>& q)
+void* consumer(void* arg)
 {
+    SPSCQueue<int>* q = static_cast<SPSCQueue<int>*> (arg);
     cout << "create a consumer thread" <<endl;
     for (int i=0;i<N;i++)
     {
-        unique_ptr<int> item=q.pop();
+        unique_ptr<int> item=std::move(q->pop());
         cout << "consumed item " << *item<<endl;
     }
+    return 0;
 }
 
 int main(void)
 {
-    int totThreads=N;
     SPSCQueue<int> queue(7);
     pthread_t producer_thread,consumer_thread;
     pthread_create(&producer_thread,NULL,producer,&queue);
     pthread_create(&consumer_thread,NULL,consumer,&queue);
-    
-    producer(queue);
-    consumer(queue);
+
+    pthread_join(producer_thread,NULL);
+    pthread_join(producer_thread,NULL);
 
     return 0;
 }
