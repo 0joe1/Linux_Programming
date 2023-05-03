@@ -1,11 +1,12 @@
 #include <iostream>
+#include <unistd.h>
 #include <utility>
 #include <pthread.h>
 #include <memory>
 #include <queue>
 
 
-#define N 10
+#define N 20
 
 using namespace std;
 
@@ -30,9 +31,9 @@ public:
             pthread_cond_wait(&cond_f,&mtx);
 
         //生产，若原来没有就提醒消费者可以消费了
-        line.push(item);
-        if (line.size()==1)
-            pthread_cond_signal(&cond_n);
+        line.push(std::move(item));
+        pthread_cond_signal(&cond_n);
+        cout << "produced item " << *line.back()<< "  now have "<< line.size()<<endl;
 
         //别忘记解锁
         pthread_mutex_unlock(&mtx);
@@ -49,8 +50,8 @@ public:
         //消费，若原来是满的就提醒生产者又可以生产了
         unique_ptr<T> ret = std::move(line.front());
         line.pop();
-        if (line.size()==cap-1)
-            pthread_cond_signal(&cond_f);
+        pthread_cond_signal(&cond_f);
+        cout << "consumed item " << *ret<< "  now have "<< line.size()<<endl;
 
         pthread_mutex_unlock(&mtx);
 
@@ -71,7 +72,6 @@ void* producer(void* arg)
     {
         unique_ptr<int> item(new int(i));
         q->Push(std::move(item));
-        cout << "produced item " << i << endl;
     }
     return 0;
 }
@@ -83,7 +83,6 @@ void* consumer(void* arg)
     for (int i=0;i<N;i++)
     {
         unique_ptr<int> item=std::move(q->pop());
-        cout << "consumed item " << *item<<endl;
     }
     return 0;
 }
