@@ -183,18 +183,6 @@ struct cmd* makeexec(int argc,char* argv[])
 
     return (struct cmd*)execcmd;
 }
-void test(struct cmd* cmd) {
-    
-    printf("%d->",cmd->type);
-    switch(cmd->type)
-    {
-        case EXEC:return;
-        case BACK:return;
-        case REDIR:cmd=((struct redircmd*)cmd)->cmd;
-        case PIPE:cmd=((struct pipecmd*)cmd)->left;
-        case LIST:cmd=((struct listcmd*)cmd)->right;
-    }
-}
 
 char prepath[500];
 
@@ -213,9 +201,6 @@ int main(void)
     getcwd(prepath,sizeof(prepath));
     while (getcmd(buf))
     {   
-        /*if (buf[0]='\0')
-            continue;*/
-
         while (*buf && strchr(whitespace,*buf))
             buf++;
         if (buf[0]=='c' && buf[1]=='d' && buf[2]==' ')
@@ -287,9 +272,16 @@ void runcmd(struct cmd* cmd)
             wait(NULL);
             break;
         case REDIR:
+            int newfd;
             redircmd=(struct redircmd*)cmd;
-            close(redircmd->oldfd);
-            open(redircmd->newfile,redircmd->mode);
+            newfd=open(redircmd->newfile,redircmd->mode);
+            dup2(redircmd->oldfd,redircmd->newfd);
+            if (redircmd->cmd->type == REDIR)
+            {
+                struct redircmd* nextcmd=(struct redircmd*)redircmd->cmd;
+                nextcmd->oldfd=newfd;
+            }
+            close(newfd);
             runcmd(redircmd->cmd);
             break;
     }
