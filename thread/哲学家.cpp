@@ -9,6 +9,7 @@ using namespace std;
 
 
 pthread_mutex_t chopsticks[5];
+pthread_mutex_t eating;
 sem_t allow;
 
 void stick_init(pthread_mutex_t* chopsticks)
@@ -23,6 +24,7 @@ private:
     int num;
     string name;
 public:
+    pthread_t id;
     explicit philosopher(int x)
         :num(x){
             static map<int,string> names{
@@ -35,26 +37,35 @@ public:
             name=names[num];
         }
     virtual bool eat(void){
+        pthread_mutex_lock(&eating);
+
         cout << "philosopher "<< name <<" eating....." << endl;
-        sleep(100);
+        sleep(1);
+        pthread_mutex_unlock(&chopsticks[(num-1)%5]);
         pthread_mutex_unlock(&chopsticks[num%5]);
-        pthread_mutex_unlock(&chopsticks[(num+1)%5]);
+
+        pthread_mutex_unlock(&eating);
 
         return 1;
     }
     virtual bool getStick(void){
+        pthread_mutex_lock(&chopsticks[(num-1)%5]);
         pthread_mutex_lock(&chopsticks[num%5]);
-        pthread_mutex_lock(&chopsticks[(num+1)%5]);
 
         return 1;
     }
 };
 
-void feast1(philosopher p)
+/*方案一：最多允许4个人进餐*/
+void* feast1(void* arg)
 {
+    philosopher* p=static_cast<philosopher*>(arg);
     sem_wait(&allow);
-    p.getStick();
-    p.eat();
+    p->getStick();
+    p->eat();
+    sem_post(&allow);
+
+    return 0;
 }
 
 
@@ -66,7 +77,13 @@ int main(void)
     philosopher philosophers[] = {philosopher(1), philosopher(2), philosopher(3), philosopher(4), philosopher(5)};
 
     for (int i=0;i<5;i++)
-        feast1(philosophers[i]);
+        pthread_create(&philosophers[i].id,NULL,feast1,&philosophers[i]);
 
+    for (int i=0;i<5;i++)
+        pthread_join(philosophers[i].id,NULL);
+
+    sem_destroy(&allow);
+    for (int i=0;i<5;i++)
+        pthread_mutex_destroy(&chopsticks[i]);
     return 0;
 }
