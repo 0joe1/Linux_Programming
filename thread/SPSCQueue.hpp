@@ -13,6 +13,7 @@ template<class T>
 class SPSCQueue {
 private:
     int cap;
+    int exit;
     queue<std::unique_ptr<T>> line;
     pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_cond_t cond_n = PTHREAD_COND_INITIALIZER;
@@ -20,7 +21,7 @@ private:
 
 public:
     explicit SPSCQueue(size_t capacity)
-        :cap(capacity){}
+        :cap(capacity),exit(0){}
 
     virtual bool Push(std::unique_ptr<T> item){
         pthread_mutex_lock(&mtx); //加锁
@@ -44,7 +45,13 @@ public:
 
         //若空，则阻塞等待生产者生产
         while (line.size()==0)
+        {
             pthread_cond_wait(&cond_n,&mtx);
+            if (exit){
+                pthread_mutex_unlock(&mtx);
+                return nullptr;
+            }
+        }
 
         //消费，若原来是满的就提醒生产者又可以生产了
         unique_ptr<T> ret = std::move(line.front());
@@ -55,6 +62,10 @@ public:
         pthread_mutex_unlock(&mtx);
 
         return ret;
+    }
+    void liberate(void){
+        exit=1;
+        pthread_cond_broadcast(&cond_n);
     }
     virtual ~SPSCQueue(){
         pthread_mutex_destroy(&mtx);
