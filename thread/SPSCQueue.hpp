@@ -29,6 +29,10 @@ public:
         //若满，则阻塞等待
         while(line.size() == cap)
             pthread_cond_wait(&cond_f,&mtx);
+        if (exit){
+            pthread_mutex_unlock(&mtx);
+            return 0;
+        }
 
         //生产，若原来没有就提醒消费者可以消费了
         line.push(std::move(item));
@@ -66,6 +70,7 @@ public:
     void liberate(void){
         exit=1;
         pthread_cond_broadcast(&cond_n);
+        pthread_cond_broadcast(&cond_f);
     }
     virtual ~SPSCQueue(){
         pthread_mutex_destroy(&mtx);

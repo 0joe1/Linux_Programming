@@ -12,9 +12,12 @@ private:
     SPSCQueue<TASK> tasks;
     vector<pthread_t> ids;
     bool shutdown;
+    bool finish;
+    bool end;
 private:
     static void* threadfunc(void* arg)
     {
+        end=0;
         thread_pool* self = static_cast<thread_pool*> (arg);
         while(1)
         {
@@ -22,14 +25,20 @@ private:
                 return 0;
 
             unique_ptr<TASK> task=std::move(self->tasks.pop());
-            if (task != NULL)
+
+            if (task != NULL){
                 task->dosome();
+            }
+            else if(self->finish){
+                //printf("%d ########################################",self->finish);
+                break;
+            }
         }
         return 0;
     }
 public:
     explicit thread_pool(size_t tottasks,size_t totTreads)
-        :tasks(tottasks){
+        :tasks(tottasks),finish(0),end(0){
             ids.resize(totTreads);
             shutdown=false;
             for (int i=0;i<totTreads;i++)
@@ -47,6 +56,12 @@ public:
     }
     bool add_task(unique_ptr<TASK> task){
         return tasks.Push(std::move(task));
+    }
+    void wait_done(){
+        finish=1;
+        tasks.liberate();
+        for (int i=0;i<ids.size();i++)
+            pthread_join(ids[i],NULL);
     }
 };
 
