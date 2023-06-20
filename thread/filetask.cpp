@@ -48,7 +48,7 @@ class getfiles : public TASK{
             if (depth >= config.max_depth){
                 return;
             }
-            cout <<depth<<endl;
+            //cout <<depth<<endl;
             DIR *dirp;
             struct dirent *dp;
             struct stat sb;
@@ -65,7 +65,7 @@ class getfiles : public TASK{
             {
                 string filename = folder+'/'+dp->d_name;
                 if (isSkip(folder,dp)){
-                    dp = readdir(dirp);//here
+                    dp = readdir(dirp);
                     continue;
                 }
                 cout << filename<< depth <<endl;
@@ -93,12 +93,13 @@ int main(void)
     config.skip_hidden = true;
     config.file_type = ".txt";
     config.max_depth = 4;
-    thread_pool pool = thread_pool(10000,3);
+    thread_pool pool = thread_pool(100000,6);
     getfiles task(0, config, "/home/username/Desktop",pool);
     task.dosome();
-    //sleep(2);
-    pool.wait_done();
-
+    sleep(5);
+    //pool.wait_done();
+    for (auto f:collector)
+        cout <<collector.size()<<f<<endl;
 
     return 0;
 }
