@@ -1,0 +1,4 @@
+/home/username/Desktop/Linux_Programming/network/netPlan/Network/build/CMakeFiles/client.out.dir
+/home/username/Desktop/Linux_Programming/network/netPlan/Network/build/CMakeFiles/server.out.dir
+/home/username/Desktop/Linux_Programming/network/netPlan/Network/build/CMakeFiles/edit_cache.dir
+/home/username/Desktop/Linux_Programming/network/netPlan/Network/build/CMakeFiles/rebuild_cache.dir

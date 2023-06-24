@@ -4,7 +4,8 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 
-#define SV_SOCK_PATH "tmp/us_xfr"
+#define BUF_SIZE 100
+#define SV_SOCK_PATH "/tmp/us_xfr"
 
 class Client{
 private:
@@ -42,5 +43,8 @@ void Client::working()
 
 int main(int argc,char* argv[])
 {
+    Client coco(BUF_SIZE);
+    coco.connecting(SV_SOCK_PATH);
+    coco.working();
     return 0;
 }

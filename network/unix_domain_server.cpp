@@ -4,6 +4,7 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 
+#define BACKLOG 5
 #define SV_SOCK_PATH "/tmp/us_xfr"
 #define BUF_SIZE 100
 
@@ -42,14 +43,16 @@ void Server::working()
         int cfd;
         socklen_t len = sizeof(struct sockaddr_un);
         cfd = accept(sfd,(struct sockaddr*)&rec_from,&len);
+        //cfd = accept(sfd,NULL,NULL);
 
         ssize_t numRead=0;
         char buf[buf_size];
+
+        cout << "received from "<<rec_from.sun_path <<endl;
         while((numRead = read(cfd,buf,buf_size)))
         {
             write(STDOUT_FILENO,buf,numRead);
         }
-        cout << "received from "<<rec_from.sun_path <<endl;
 
         close(cfd);
     }
@@ -59,6 +62,9 @@ void Server::working()
 
 int main(void)
 {
+    Server master(SV_SOCK_PATH,BACKLOG,BUF_SIZE);
+    master.start();
+    master.working();
     return 0;
 }
 
