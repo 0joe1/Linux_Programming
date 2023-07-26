@@ -1,3 +1,5 @@
+#ifndef MYERR
+#define MYERR
 #include <stdio.h>
 #include <stdlib.h>
 void myerr(const char * msg)
@@ -9,3 +11,5 @@ void myerr(const char * msg)
     else
         exit(EXIT_FAILURE);
 }
+
+#endif
