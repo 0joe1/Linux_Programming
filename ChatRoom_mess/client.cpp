@@ -12,8 +12,11 @@
 
 int sfd;
 bool islog;
+int myid;
+int talkto=-1;
 
 pthread_mutex_t mlog = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  colog = PTHREAD_COND_INITIALIZER;
 
 
@@ -34,11 +37,11 @@ void cliSign(int fd) {
     msg.flag = 1;
     std::cout << "Please input UID" << std::endl;
     scanf("%u", &msg.uid);
+    myid = msg.uid;
     std::cout << "Please input your password" << std::endl;
     std::cin >> msg.password;
 
     sendMsg(fd, msg.toStr().c_str());
-    islog = 1;
     pthread_mutex_lock(&mlog);
     pthread_cond_wait(&colog,&mlog);
 }
@@ -47,13 +50,34 @@ void cliLog(int fd) {
     msg.flag = 0;
     std::cout << "Please input UID" << std::endl;
     scanf("%u", &msg.uid);
+    myid = msg.uid;
     std::cout << "Please input your password" << std::endl;
     std::cin >> msg.password;
 
     sendMsg(fd, msg.toStr().c_str());
-    islog = 1;
     pthread_mutex_lock(&mlog);
     pthread_cond_wait(&colog,&mlog);
+}
+
+void friChat(int fd)
+{
+    Msg msg;
+    msg.flag = 2;
+
+    msg.uid = myid;
+    std::cout << "请输入您想聊天的用户的UID" << std::endl;
+    scanf("%u",&msg.touid);
+    talkto = msg.touid;
+
+    printf("--------与用户%d的聊天(按Q退出)-----------",talkto);
+    std::string content;
+    std::cin >> content;
+    while (content != "Q")
+    {
+        msg.content = content;
+        sendMsg(fd,msg.toStr().c_str());
+        std::cin >> content;
+    }
 }
 
 void print_message(std::string buf)
@@ -61,9 +85,17 @@ void print_message(std::string buf)
     pthread_mutex_lock(&mlog);
 
     std::cout << buf << std::endl;
+    if (buf == "登陆成功" || buf == "注册成功"){
+        islog = 1;
+    }
 
     pthread_cond_signal(&colog);
     pthread_mutex_unlock(&mlog);
+}
+
+void prv_recv(std::string buf)
+{
+    std::cout << buf << std::endl;
 }
 
 void do_read(int fd)
@@ -79,6 +111,13 @@ void do_read(int fd)
         case 1:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
+            break;
+        case 2:
+            std::cout << choice << std::endl;
+            prv_recv(rmg.mg);
+            break;
+        default:
+            std::cout << "default" << std::endl;
     }
 }
 
@@ -89,9 +128,7 @@ void* do_epoll(void *) {
 
     ev.data.fd = sfd;
     ev.events = EPOLLIN;
-    std::cout << "test1" << std::endl;
     epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
-    std::cout << "test2" << std::endl;
     while (1) {
         epoll_wait(epfd, evlist, MAXEVENTS, -1);
         do_read(sfd);
@@ -121,6 +158,8 @@ void mainDisplay(int sfd)
                 break;
             case 1:
                 cliSign(sfd);
+            case 2:
+                friChat(sfd);
                 break;
         }
     }

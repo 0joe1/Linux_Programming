@@ -98,5 +98,37 @@ ChatRoom:
 
 
 
-### 测试
+### Redis 内数据组织设计：
+
+单个用户 [string] 
+
+uid:{password,name}
+
+
+
+用户会话列表 [List]
+
+"cfuid:tiod" --  聊天内容list
+
+
+
+UserLIst 
+
+一个 hash 数据结构用于存储 gid 对应的拥有者 id
+`HSET gid_owner gid owner_id`
+一个 set 数据结构用于存储 gid 对应的普通用户 id
+
+```
+SADD gid_users gid user_id1
+SADD gid_users gid user_id2
+```
+
+
+一个 set 数据结构用于存储 gid 对应的管理者用户 id
+```
+SADD gid_managers gid manager_id1
+SADD gid_managers gid manager_id2
+```
+
+
 

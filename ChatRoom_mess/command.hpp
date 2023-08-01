@@ -101,15 +101,11 @@ void tasklist::login(void* arg)
     uint32_t uid;
 
 
+    printf("test1\n");
     Msg msg(cmd->m);
+    printf("test2\n");
     uid = msg.uid;
-    //防止重复登陆
-    if (fdMap.count(uid) > 0)
-        smsg.mg = "已登陆";
-        sendMsg(cmd->fd,smsg.toStr().c_str());
-        return;
 
-    fdMap[uid] = cmd->fd;
 
     redisReply *reply = hred.get(uid);
     if (hred.badReply(reply)){
@@ -126,15 +122,21 @@ void tasklist::login(void* arg)
     User user(j);
 
     password = msg.password;
-    if (password == user.password){
-        smsg.mg = "登陆成功";
-        sendMsg(cmd->fd,smsg.toStr().c_str());
-    }
-    else
-    {
+    if (password != user.password){
         smsg.mg = "密码错误";
         sendMsg(cmd->fd,smsg.toStr().c_str());
+        return;
     }
+    //防止重复登陆
+    if (fdMap.count(uid) > 0){
+        smsg.mg = "已登陆";
+        sendMsg(cmd->fd,smsg.toStr().c_str());
+        return;
+    }
+    fdMap[uid] = cmd->fd;
+    smsg.mg = "登陆成功";
+    std::cout << smsg.mg << std::endl;
+    sendMsg(cmd->fd,smsg.toStr().c_str());
 
     epoll_add(cmd->fd,cmd->epfd);
 }
@@ -186,38 +188,47 @@ void tasklist::signup(void* arg)
 
 
     freeReplyObject(r);
+    epoll_add(cmd->fd,cmd->epfd);
     return ;
+}
+
+void sendmg(int fd,rMsg *msg,std::string mg)
+{
+    msg->mg = mg;
+    sendMsg(fd,msg->toStr().c_str());
 }
 
 void tasklist::friendChat(void* arg)
 {
+    rMsg smsg;
+    smsg.flag = 2;
     Command *cmd = static_cast<Command*>(arg);
     Hred hred(cmd->context);
-    thread_pool *pool = cmd->pool;
-    //if (cmd->status == 0){
-        //pool->add_task(cmd->parse_command()); //return;
-    //}
 
-    uint32_t fuid = readUint(cmd->fd);
-    redisReply *reply = hred.get(fuid);
+    Msg msg(cmd->m);
+
+    int fuid,touid;
+    fuid  = msg.uid;
+    touid = msg.touid;
+    redisReply *reply = hred.get(touid);
     while (reply->type == REDIS_REPLY_NIL){
-        sendMsg(cmd->fd,"未找到该用户，请重试");
-        reply = hred.get(fuid);
-        return ;
-    }
-    while (!isOnline(reply)){
-        sendMsg(cmd->fd,"该用户未上线");
+        sendmg(cmd->fd,&smsg,"未找到该用户，请重试");
         return ;
     }
 
-    int ffd = fdMap[fuid];
-    std::string msg;
-    while(1)
-    {
-        msg = readMsg(cmd->fd);
-        sendMsg(ffd,msg.c_str());
-    }
+    std::string content  =  msg.content;
+    hred.lpush(fuid,touid,content);
 
+    int tofd;
+    if (fdMap.count(touid) == 0){
+        sendmg(cmd->fd,&smsg,"该用户未上线");
+        return ;
+    }
+    tofd = fdMap[touid];
+    while ((content=hred.rpop(fuid,touid)) != "" ){
+        sendmg(tofd,&smsg,content);
+    }
+    epoll_add(cmd->fd,cmd->epfd);
 }
 
 void test(void *arg)

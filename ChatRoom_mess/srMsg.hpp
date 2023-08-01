@@ -83,12 +83,16 @@ char* readMsg(int fd)
 struct Msg {
     int flag;
     uint32_t uid;
+    uint32_t touid{0};
+    std::string content;
     std::string password;
 
     Msg(std::string info) {
         nlohmann::json j = nlohmann::json::parse(info);
         flag = j["flag"];
         uid = j["uid"];
+        touid = j["touid"];
+        content = j["content"];
         password = j["password"];
     }
     Msg() = default;
@@ -96,6 +100,8 @@ struct Msg {
         nlohmann::json j;
         j["flag"] = flag;
         j["uid"] = uid;
+        j["touid"] = touid;
+        j["content"] = content;
         j["password"] = password;
 
         return j;
