@@ -88,6 +88,7 @@ struct Msg {
     std::string password;
 
     Msg(std::string info) {
+        std::cout << info << std::endl;
         nlohmann::json j = nlohmann::json::parse(info);
         flag = j["flag"];
         uid = j["uid"];

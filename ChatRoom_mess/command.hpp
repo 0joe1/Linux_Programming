@@ -8,13 +8,16 @@
 #include "user.hpp"
 #include "menu.hpp"
 #include "thread_pool.hpp"
+#include "user_list.hpp"
 
 extern std::map<uint32_t,int> fdMap;
 
 enum tasks {
     LOGIN,
     SIGNUP,
-    FRIENDCHAT
+    FRIENDCHAT,
+    ADDFRIEND,
+    FRIENDREQUEST,
 };
 
 bool isNumeric(std::string const &str)
@@ -40,6 +43,8 @@ struct tasklist{
     static void login(void*);
     static void signup(void*);
     static void friendChat(void*);
+    static void addFriend(void*);
+    static void friend_req(void*);
 };
 
 class Command{
@@ -79,6 +84,20 @@ public:
     //pool->add_task(std::move(task));
 //}
 
+redisReply* check_uexist(Hred hred,uint32_t uid,int fd,rMsg smsg,std::string value)
+{
+    redisReply *reply = hred.get(uid);
+    if (hred.badReply(reply)){
+        return NULL;
+    }
+    if (reply->type == REDIS_REPLY_NIL){
+        smsg.mg = value;
+        sendMsg(fd,smsg.toStr().c_str());
+        return NULL;
+    }
+
+    return reply;
+}
 
 void epoll_add(int fd,int epfd)
 {
@@ -91,7 +110,6 @@ void epoll_add(int fd,int epfd)
 
 void tasklist::login(void* arg)
 {
-    char *str;
     rMsg smsg; //client receive what server send
     smsg.flag = 0;
 
@@ -106,15 +124,10 @@ void tasklist::login(void* arg)
     printf("test2\n");
     uid = msg.uid;
 
-
-    redisReply *reply = hred.get(uid);
-    if (hred.badReply(reply)){
-        return ;
-    }
-    if (reply->type == REDIS_REPLY_NIL){
-        smsg.mg = "请先注册";
-        sendMsg(cmd->fd,smsg.toStr().c_str());
-        return ;
+    redisReply* reply;
+    if((reply =check_uexist(hred,uid,cmd->fd,smsg,"请先注册")) == NULL){
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
     }
 
     nlohmann::json j = nlohmann::json::parse(reply->str);
@@ -143,7 +156,6 @@ void tasklist::login(void* arg)
 
 void tasklist::signup(void* arg)
 {
-    char *str;
     rMsg smsg;
     smsg.flag = 1;
 
@@ -164,6 +176,7 @@ void tasklist::signup(void* arg)
         smsg.mg = "该用户已存在";
         sendMsg(cmd->fd,smsg.toStr().c_str());
         freeReplyObject(reply);
+        epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
     freeReplyObject(reply);
@@ -192,6 +205,7 @@ void tasklist::signup(void* arg)
     return ;
 }
 
+
 void sendmg(int fd,rMsg *msg,std::string mg)
 {
     msg->mg = mg;
@@ -213,24 +227,99 @@ void tasklist::friendChat(void* arg)
     redisReply *reply = hred.get(touid);
     while (reply->type == REDIS_REPLY_NIL){
         sendmg(cmd->fd,&smsg,"未找到该用户，请重试");
+        epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
 
     std::string content  =  msg.content;
-    hred.lpush(fuid,touid,content);
+    std::string key = std::to_string(fuid) + ":"+ std::to_string(touid) + ":privatechat";
+    hred.lpush(key,content);
 
     int tofd;
     if (fdMap.count(touid) == 0){
         sendmg(cmd->fd,&smsg,"该用户未上线");
+        epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
     tofd = fdMap[touid];
-    while ((content=hred.rpop(fuid,touid)) != "" ){
+    while ((content=hred.rpop(key)) != "" ){
         sendmg(tofd,&smsg,content);
     }
     epoll_add(cmd->fd,cmd->epfd);
 }
 
+void tasklist::addFriend(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = ADDFRIEND;
+    Command *cmd = static_cast<Command*>(arg);
+    Hred hred(cmd->context);
+
+    Msg msg(cmd->m);
+    uint32_t fuid,touid;
+    fuid  = msg.uid;
+    touid = msg.touid;
+
+    redisReply* reply;
+    if((reply = check_uexist(hred,touid,cmd->fd,smsg,"未发现该用户")) == NULL){
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    freeReplyObject(reply);
+
+    UserList uslt(cmd->context,INDIVIDUAL,fuid);
+    if (uslt.isMember(touid)){
+        epoll_add(cmd->fd,cmd->epfd);
+        sendmg(fuid,&smsg,"TA已经是你的伙伴啦");
+        return;
+    }
+
+    int tofd;
+    std::string key = std::to_string(touid) + ":friendrequest";
+    std::string content;
+    if ((content = hred.rpop(key)) == ""){
+        content = std::to_string(fuid);
+        hred.lpush(key,content);
+    }
+    if (fdMap.count(touid) == 0){
+        epoll_add(cmd->fd,cmd->epfd);
+        return ;
+    }
+
+    tofd = fdMap[touid];
+    content = hred.rpop(key);
+
+    sendmg(tofd,&smsg,content);
+
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::friend_req(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = FRIENDREQUEST;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Hred hred(cmd->context);
+    uint32_t fuid,touid;
+
+    Msg msg(cmd->m);
+    fuid  =  msg.uid;
+    touid =  msg.touid;
+
+    if (msg.content == "n"){
+        std::string s = "您被用户" + std::to_string(fuid) + "无情地拒绝了";
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    UserList uslt(cmd->context,INDIVIDUAL,fuid);
+    uslt.addMember(touid);
+    std::string s = "恭喜您，与用户" + std::to_string(fuid) + "双向奔赴";
+    sendmg(touid,&smsg,s);
+
+    epoll_add(cmd->fd,cmd->epfd);
+}
 void test(void *arg)
 {
     std::cout << "test succeed" << std::endl;
@@ -258,6 +347,12 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case 2:
             work->func = funcs.friendChat;
+            break;
+        case ADDFRIEND:
+            work->func = funcs.addFriend;
+            break;
+        case FRIENDREQUEST:
+            work->func = funcs.friend_req;
             break;
         default:;
     }

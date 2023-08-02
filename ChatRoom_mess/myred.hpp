@@ -39,18 +39,16 @@ public:
         reply = (redisReply*)redisCommand(context,"DEL %ld %s",key);
         return reply;
     }
-    redisReply* lpush(uint32_t fuid,uint32_t touid,std::string value)
+    redisReply* lpush(std::string key,std::string value)
     {
         redisReply* reply;
-        std::string key = "c" + std::to_string(fuid) + ":"+ std::to_string(touid);
         reply = (redisReply*)redisCommand(context,"LPUSH %s %s",key.c_str(),value.c_str());
         return reply;
     }
-    std::string rpop(uint32_t fuid,uint32_t touid)
+    std::string rpop(std::string key)
     {
         redisReply* reply;
         std::string ret;
-        std::string key = "c" + std::to_string(fuid) + ":"+ std::to_string(touid);
         reply = (redisReply*)redisCommand(context,"RPOP %s",key.c_str());
 
         this->badReply(reply);

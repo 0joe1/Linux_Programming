@@ -88,6 +88,8 @@ ChatRoom:
 
 人物列表：
 
+对于个人来讲，gid=本身uid=ownerid
+
 组成：储存人物ID的列表（数据库）   权限监控器
 
 功能：
@@ -109,6 +111,14 @@ uid:{password,name}
 用户会话列表 [List]
 
 "cfuid:tiod" --  聊天内容list
+
+
+
+
+
+记录谁给我发了消息 [set]
+
+方便刚登陆可以加载离线数据
 
 
 

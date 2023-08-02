@@ -15,6 +15,15 @@ bool islog;
 int myid;
 int talkto=-1;
 
+
+enum tasks {
+    LOGIN,
+    SIGNUP,
+    FRIENDCHAT,
+    ADDFRIEND,
+    FRIENDREQUEST
+};
+
 pthread_mutex_t mlog = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  colog = PTHREAD_COND_INITIALIZER;
@@ -80,6 +89,18 @@ void friChat(int fd)
     }
 }
 
+void addFriend(int fd)
+{
+    Msg msg;
+    msg.flag = ADDFRIEND;
+
+    msg.uid = myid;
+    std::cout << "请选择您想要的伙伴(uid)" << std::endl;
+    scanf("%u",&msg.touid);
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
 void print_message(std::string buf)
 {
     pthread_mutex_lock(&mlog);
@@ -98,6 +119,29 @@ void prv_recv(std::string buf)
     std::cout << buf << std::endl;
 }
 
+void friend_req(std::string buf,int fd)
+{
+    Msg msg;
+    msg.flag = FRIENDREQUEST;
+    // know who send me request
+    uint32_t fuid = std::stoul(buf);
+
+    std::string choice;
+    std::cout << std::to_string(fuid) + " wants you! Accept?(y/n)" << std::endl;
+    std::cin >> choice;
+    std::cout << choice << std::endl;
+    while (choice != "y" && choice != "n"){
+        std::cout << choice << std::endl;
+        std::cout << "Please input y or n" << std::endl;
+        std::cin >> choice;
+    }
+
+    msg.uid     =  myid;
+    msg.touid   =  fuid;
+    msg.content =  choice;
+    sendMsg(fd,msg.toStr().c_str());
+}
+
 void do_read(int fd)
 {
     std::string t = readMsg(fd);
@@ -109,6 +153,7 @@ void do_read(int fd)
     {
         case 0:
         case 1:
+        case FRIENDREQUEST:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
@@ -116,6 +161,11 @@ void do_read(int fd)
             std::cout << choice << std::endl;
             prv_recv(rmg.mg);
             break;
+        case ADDFRIEND:
+            std::cout << choice << std::endl;
+            friend_req(rmg.mg,fd);
+            break;
+
         default:
             std::cout << "default" << std::endl;
     }
@@ -153,13 +203,16 @@ void mainDisplay(int sfd)
 
         switch(choice)
         {
-            case 0:
+            case LOGIN:
                 cliLog(sfd);
                 break;
-            case 1:
+            case SIGNUP:
                 cliSign(sfd);
-            case 2:
+            case FRIENDCHAT:
                 friChat(sfd);
+                break;
+            case ADDFRIEND:
+                addFriend(sfd);
                 break;
         }
     }
