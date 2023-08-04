@@ -17,7 +17,8 @@ enum tasks {
     SIGNUP,
     FRIENDCHAT,
     ADDFRIEND,
-    FRIENDREQUEST,
+    DELFRIEND,
+    FRIENDREQUEST
 };
 
 bool isNumeric(std::string const &str)
@@ -45,6 +46,7 @@ struct tasklist{
     static void friendChat(void*);
     static void addFriend(void*);
     static void friend_req(void*);
+    static void delFriend(void*)
 };
 
 class Command{
@@ -270,7 +272,7 @@ void tasklist::addFriend(void* arg)
     UserList uslt(cmd->context,INDIVIDUAL,fuid);
     if (uslt.isMember(touid)){
         epoll_add(cmd->fd,cmd->epfd);
-        sendmg(fuid,&smsg,"TA已经是你的伙伴啦");
+        sendmg(cmd->fd,&smsg,"TA已经是你的伙伴啦");
         return;
     }
 
@@ -307,8 +309,10 @@ void tasklist::friend_req(void* arg)
     fuid  =  msg.uid;
     touid =  msg.touid;
 
+    int tofd = fdMap[touid];
     if (msg.content == "n"){
         std::string s = "您被用户" + std::to_string(fuid) + "无情地拒绝了";
+        sendmg(tofd,&smsg,s);
         epoll_add(cmd->fd,cmd->epfd);
         return;
     }
@@ -316,10 +320,29 @@ void tasklist::friend_req(void* arg)
     UserList uslt(cmd->context,INDIVIDUAL,fuid);
     uslt.addMember(touid);
     std::string s = "恭喜您，与用户" + std::to_string(fuid) + "双向奔赴";
-    sendmg(touid,&smsg,s);
+    sendmg(tofd,&smsg,s);
 
     epoll_add(cmd->fd,cmd->epfd);
 }
+
+void tasklist::delFriend(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = DELFRIEND;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Hred hred(cmd->context);
+
+    Msg msg(cmd->m);
+    uint32_t touid = msg.touid;
+
+    UserList uslt(cmd->context,INDIVIDUAL,msg.uid);
+    uslt.delMember(touid);
+
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+
 void test(void *arg)
 {
     std::cout << "test succeed" << std::endl;
@@ -354,6 +377,8 @@ unique_ptr<TASK> Command::parse_command()
         case FRIENDREQUEST:
             work->func = funcs.friend_req;
             break;
+        case DELFRIEND:
+            work->func = funcs.delFriend;
         default:;
     }
     std::cout << m << std::endl;

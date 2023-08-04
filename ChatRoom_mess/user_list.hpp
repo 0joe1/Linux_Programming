@@ -32,6 +32,7 @@ public:
     }
 
     void addMember(uint32_t uid);
+    void delMember(uint32_t uid);
     std::vector<uint32_t> get_list();
     bool isMember(uint32_t uid);
 };
@@ -39,6 +40,14 @@ public:
 void UserList::addMember(uint32_t uid)
 {
     redisReply* reply = (redisReply*)redisCommand(context,"SADD %u:userlist %u",gid,uid);
+    badReply(reply,"addMember");
+
+    freeReplyObject(reply);
+    return;
+}
+void UserList::delMember(uint32_t uid)
+{
+    redisReply* reply = (redisReply*)redisCommand(context,"SREM %u:userlist %u",gid,uid);
     badReply(reply,"addMember");
 
     freeReplyObject(reply);

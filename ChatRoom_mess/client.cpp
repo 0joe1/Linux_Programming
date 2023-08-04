@@ -2,18 +2,22 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <sys/epoll.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "menu.hpp"
 #include "socket.hpp"
 #include "srMsg.hpp"
 #include "user.hpp"
+#include "fileio.hpp"
 
 #define MAXEVENTS 20
 
+const char* friend_requests = "friend_requests.txt";
 
 int sfd;
 bool islog;
-int myid;
-int talkto=-1;
+uint32_t myid;
+uint32_t talkto;
 
 
 enum tasks {
@@ -21,13 +25,24 @@ enum tasks {
     SIGNUP,
     FRIENDCHAT,
     ADDFRIEND,
+    DELFRIEND,
     FRIENDREQUEST
 };
 
-pthread_mutex_t mlog = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mtx   = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  colog = PTHREAD_COND_INITIALIZER;
+pthread_cond_t  cm    = PTHREAD_COND_INITIALIZER;
 
+
+bool isNumeric(std::string const &str)
+{
+    auto it = str.begin();
+    while (it != str.end() && std::isdigit(*it)) {
+        it++;
+    }
+    return !str.empty() && it == str.end();
+}
 
 void sendone(int sfd) {
     std::string msg;
@@ -48,24 +63,29 @@ void cliSign(int fd) {
     scanf("%u", &msg.uid);
     myid = msg.uid;
     std::cout << "Please input your password" << std::endl;
-    std::cin >> msg.password;
+    getchar();
+    getline(std::cin,msg.password);
 
     sendMsg(fd, msg.toStr().c_str());
     pthread_mutex_lock(&mlog);
     pthread_cond_wait(&colog,&mlog);
+    pthread_mutex_unlock(&mlog);
 }
 void cliLog(int fd) {
     Msg msg;
     msg.flag = 0;
     std::cout << "Please input UID" << std::endl;
     scanf("%u", &msg.uid);
+    getchar();
     myid = msg.uid;
+
     std::cout << "Please input your password" << std::endl;
-    std::cin >> msg.password;
+    getline(std::cin,msg.password);
 
     sendMsg(fd, msg.toStr().c_str());
     pthread_mutex_lock(&mlog);
     pthread_cond_wait(&colog,&mlog);
+    pthread_mutex_unlock(&mlog);
 }
 
 void friChat(int fd)
@@ -97,14 +117,73 @@ void addFriend(int fd)
     msg.uid = myid;
     std::cout << "请选择您想要的伙伴(uid)" << std::endl;
     scanf("%u",&msg.touid);
+    getchar();
 
     sendMsg(fd,msg.toStr().c_str());
+    pthread_mutex_lock(&mlog);
+    pthread_cond_wait(&colog,&mlog);
+    pthread_mutex_unlock(&mlog);
 }
+
+void friend_req(int fd)
+{
+    Msg msg;
+    msg.flag = FRIENDREQUEST;
+
+    int reqfd;
+    if ((reqfd = open(friend_requests,O_RDONLY))==-1){
+        if (errno == ENOENT){
+            std::cout << "暂时还没有好友请求" << std::endl;
+            return;
+        }
+        else
+            myerr("open friend_requests");
+    }
+
+    off_t off_set = 0;
+    char* buffer = (char*)malloc(sizeof(uint32_t));
+
+    read(reqfd,buffer,sizeof(uint32_t));
+
+    uint32_t fuid = strtoul(buffer,NULL,10);
+    std::string request = std::to_string(fuid) + " wants you! Accept?(y/n)";
+    std::cout << request << std::endl;
+    std::string choice;
+    getline(std::cin,choice);
+    while (choice != "y" && choice != "n"){
+        std::cout << "Please input y or n" << std::endl;
+        getline(std::cin,choice);
+    }
+
+    msg.uid     =  myid;
+    msg.touid   =  fuid;
+    msg.content =  choice;
+    sendMsg(fd,msg.toStr().c_str());
+
+    deleteBefore(&reqfd,friend_requests);
+}
+
+void delfriend(int fd)
+{
+    Msg msg;
+    msg.flag = DELFRIEND;
+
+    uint32_t touid;
+    std::cout << "想删谁？" << std::endl;
+    scanf("%u",&touid);
+    getchar();
+
+    msg.uid   = myid;
+    msg.touid = touid;
+    sendMsg(fd,msg.toStr().c_str());
+}
+
 
 void print_message(std::string buf)
 {
     pthread_mutex_lock(&mlog);
 
+    std::cout << "print message" << std::endl;
     std::cout << buf << std::endl;
     if (buf == "登陆成功" || buf == "注册成功"){
         islog = 1;
@@ -119,27 +198,26 @@ void prv_recv(std::string buf)
     std::cout << buf << std::endl;
 }
 
-void friend_req(std::string buf,int fd)
+void save_friend_request(std::string buf)
 {
-    Msg msg;
-    msg.flag = FRIENDREQUEST;
+    if (!isNumeric(buf)){
+        std::cout << buf << std::endl;
+        return;
+    }
+
     // know who send me request
     uint32_t fuid = std::stoul(buf);
 
-    std::string choice;
-    std::cout << std::to_string(fuid) + " wants you! Accept?(y/n)" << std::endl;
-    std::cin >> choice;
-    std::cout << choice << std::endl;
-    while (choice != "y" && choice != "n"){
-        std::cout << choice << std::endl;
-        std::cout << "Please input y or n" << std::endl;
-        std::cin >> choice;
+    int fd;
+    if ((fd = open("friend_requests.txt",O_WRONLY | O_APPEND | O_CREAT,0600)) == -1){
+        myerr("open friend_requests");
+    }
+    int ret = write(fd,std::to_string(fuid).c_str(),sizeof(uint32_t));
+    if (ret == -1){
+        myerr("write friend_requests");
     }
 
-    msg.uid     =  myid;
-    msg.touid   =  fuid;
-    msg.content =  choice;
-    sendMsg(fd,msg.toStr().c_str());
+    close(fd);
 }
 
 void do_read(int fd)
@@ -151,21 +229,20 @@ void do_read(int fd)
     std::string str = rmg.mg;
     switch(choice)
     {
-        case 0:
-        case 1:
+        case LOGIN:
+        case SIGNUP:
         case FRIENDREQUEST:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
-        case 2:
+        case FRIENDCHAT:
             std::cout << choice << std::endl;
             prv_recv(rmg.mg);
             break;
         case ADDFRIEND:
             std::cout << choice << std::endl;
-            friend_req(rmg.mg,fd);
+            save_friend_request(rmg.mg);
             break;
-
         default:
             std::cout << "default" << std::endl;
     }
@@ -200,6 +277,7 @@ void mainDisplay(int sfd)
             std::cout << after_login_content << std::endl;
 
         std::cin >> choice;
+        getchar();
 
         switch(choice)
         {
@@ -208,12 +286,20 @@ void mainDisplay(int sfd)
                 break;
             case SIGNUP:
                 cliSign(sfd);
+                break;
             case FRIENDCHAT:
                 friChat(sfd);
                 break;
             case ADDFRIEND:
                 addFriend(sfd);
                 break;
+            case FRIENDREQUEST:
+                friend_req(sfd);
+                break;
+            case DELFRIEND:
+                delfriend(sfd);
+                break;
+            default:;
         }
     }
 }
@@ -228,44 +314,7 @@ int main(int argc, char *argv[]) {
         myerr("creat thread");
     }
     mainDisplay(sfd);
-    sleep(7);
 
-
-
-
-
-
-
-
-
-
-
-    /*
-    //第一次给epoll解锁，被parse_command接受作为选择
-    sendone(sfd);
-    //接收 login 的 Please input UID,然后传输uid
-    readone(sfd);
-    sendone(sfd);
-    //Please input Password
-    readone(sfd);
-    sendone(sfd);
-    //登陆成功
-    readone(sfd);
-    std::cout << after_login_content << std::endl;
-
-    std::string t;
-    std::cin >>t;
-    if (t=="6"){
-        while (1){
-            readone(sfd);
-        }
-    }
-    //parse_command 参数
-    sendone(sfd);
-    std::cout << "请输入您想聊天的用户的UID" << std::endl;
-
-    std::string msg;
-    */
 
     return 0;
 }
