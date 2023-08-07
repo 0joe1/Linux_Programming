@@ -16,9 +16,12 @@ enum tasks {
     LOGIN,
     SIGNUP,
     FRIENDCHAT,
+    SHOWFRIEND,
     ADDFRIEND,
     DELFRIEND,
-    FRIENDREQUEST
+    FRIENDREQUEST,
+    CREATGROUP,
+    ADDMEMBER
 };
 
 bool isNumeric(std::string const &str)
@@ -44,9 +47,13 @@ struct tasklist{
     static void login(void*);
     static void signup(void*);
     static void friendChat(void*);
+    static void showFriend(void*);
     static void addFriend(void*);
     static void friend_req(void*);
-    static void delFriend(void*)
+    static void delFriend(void*);
+    static void creatGroup(void*);
+    static void addMember(void*);
+
 };
 
 class Command{
@@ -250,6 +257,33 @@ void tasklist::friendChat(void* arg)
     epoll_add(cmd->fd,cmd->epfd);
 }
 
+void tasklist::showFriend(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = SHOWFRIEND;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,msg.uid);
+    std::vector<uint32_t> usvc = uslt.get_list();
+
+    std::stringstream ss;
+    for (auto& frid : usvc)
+    {
+        printf("%u\n",frid);
+        int online = 0;
+        if (fdMap.count(frid) > 0)
+            online = 1;
+        ss << frid << " " << online << " ";
+    }
+
+    std::string result = ss.str();
+    sendmg(cmd->fd,&smsg,result);
+
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
 void tasklist::addFriend(void* arg)
 {
     rMsg smsg;
@@ -269,12 +303,13 @@ void tasklist::addFriend(void* arg)
     }
     freeReplyObject(reply);
 
-    UserList uslt(cmd->context,INDIVIDUAL,fuid);
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,fuid);
     if (uslt.isMember(touid)){
         epoll_add(cmd->fd,cmd->epfd);
         sendmg(cmd->fd,&smsg,"TA已经是你的伙伴啦");
         return;
     }
+    uslt.addMember(touid);
 
     int tofd;
     std::string key = std::to_string(touid) + ":friendrequest";
@@ -283,7 +318,7 @@ void tasklist::addFriend(void* arg)
         content = std::to_string(fuid);
         hred.lpush(key,content);
     }
-    if (fdMap.count(touid) == 0){
+    if (fdMap.count(touid) == -1){
         epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
@@ -317,7 +352,7 @@ void tasklist::friend_req(void* arg)
         return;
     }
 
-    UserList uslt(cmd->context,INDIVIDUAL,fuid);
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,fuid);
     uslt.addMember(touid);
     std::string s = "恭喜您，与用户" + std::to_string(fuid) + "双向奔赴";
     sendmg(tofd,&smsg,s);
@@ -331,17 +366,50 @@ void tasklist::delFriend(void* arg)
     smsg.flag = DELFRIEND;
 
     Command *cmd = static_cast<Command*>(arg);
-    Hred hred(cmd->context);
 
     Msg msg(cmd->m);
     uint32_t touid = msg.touid;
 
-    UserList uslt(cmd->context,INDIVIDUAL,msg.uid);
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,msg.uid);
     uslt.delMember(touid);
+    sendmg(cmd->fd,&smsg,"删除成功哦！");
 
     epoll_add(cmd->fd,cmd->epfd);
 }
 
+void tasklist::creatGroup(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = CREATGROUP;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList uslt(cmd->context,"userlist",GROUP,msg.touid);
+    if (uslt.hasGroup()){
+        sendmg(cmd->fd,&smsg,"该群id已被占用");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    uslt.setOwner(msg.uid);
+
+    UserList grlt(cmd->context,"grouplist",INDIVIDUAL,msg.uid);
+    grlt.addMember(msg.touid);
+
+
+    sendmg(cmd->fd,&smsg,"创建群聊成功");
+}
+
+void tasklist::addMember(void *arg)
+{
+    rMsg smsg;
+    smsg.flag = ADDMEMBER;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+
+}
 
 void test(void *arg)
 {
@@ -360,16 +428,19 @@ unique_ptr<TASK> Command::parse_command()
     work->arg = this;
     switch(choice)
     {
-        case 0:
+        case LOGIN:
             std::cout << "login" << std::endl;
             work->func = funcs.login;
             return work;
-        case 1:
+        case SIGNUP:
             std::cout << "signup" << std::endl;
             work->func = funcs.signup;
             break;
-        case 2:
+        case FRIENDCHAT:
             work->func = funcs.friendChat;
+            break;
+        case SHOWFRIEND:
+            work->func = funcs.showFriend;
             break;
         case ADDFRIEND:
             work->func = funcs.addFriend;
@@ -379,6 +450,13 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case DELFRIEND:
             work->func = funcs.delFriend;
+            break;
+        case CREATGROUP:
+            work->func = funcs.creatGroup;
+            break;
+        case ADDMEMBER:
+            work->func = funcs.addMember;
+            break;
         default:;
     }
     std::cout << m << std::endl;

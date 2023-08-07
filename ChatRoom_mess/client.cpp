@@ -4,6 +4,7 @@
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sstream>
 #include "menu.hpp"
 #include "socket.hpp"
 #include "srMsg.hpp"
@@ -24,9 +25,12 @@ enum tasks {
     LOGIN,
     SIGNUP,
     FRIENDCHAT,
+    SHOWFRIEND,
     ADDFRIEND,
     DELFRIEND,
-    FRIENDREQUEST
+    FRIENDREQUEST,
+    CREATGROUP,
+    ADDMEMBER
 };
 
 pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
@@ -109,6 +113,15 @@ void friChat(int fd)
     }
 }
 
+void showFriend(int fd)
+{
+    Msg msg;
+    msg.flag = SHOWFRIEND;
+
+    msg.uid = myid;
+    sendMsg(fd,msg.toStr().c_str());
+}
+
 void addFriend(int fd)
 {
     Msg msg;
@@ -178,6 +191,34 @@ void delfriend(int fd)
     sendMsg(fd,msg.toStr().c_str());
 }
 
+void createGroup(int fd)
+{
+    Msg msg;
+    msg.flag = CREATGROUP;
+
+    msg.uid = myid;
+    std::cout << "请输入您想创建的群聊的id" << std::endl;
+    scanf("%u", &msg.touid);
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
+void addMember(int fd)
+{
+    Msg msg;
+    msg.flag = ADDMEMBER;
+
+    msg.uid = myid;
+    std::cout << "想为哪个群添加新成员呢？（输入groupid)" << std::endl;
+    scanf("%u",&msg.touid);
+    std::cout << "输入想拉入的新成员的id" << std::endl;
+    scanf("%u",&msg.adduid);
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
 
 void print_message(std::string buf)
 {
@@ -189,8 +230,8 @@ void print_message(std::string buf)
         islog = 1;
     }
 
-    pthread_cond_signal(&colog);
     pthread_mutex_unlock(&mlog);
+    pthread_cond_signal(&colog);
 }
 
 void prv_recv(std::string buf)
@@ -219,6 +260,31 @@ void save_friend_request(std::string buf)
 
     close(fd);
 }
+void friendShow(std::string buf)
+{
+    struct FriendInfo {
+        uint32_t  frid;
+        int       online;
+    };
+
+    FriendInfo info;
+    std::vector<FriendInfo> frv;
+    std::istringstream record(buf);
+
+    while (record >> info.frid >> info.online ){
+        frv.push_back(info);
+    }
+
+    for (auto frd : frv)
+    {
+        const char* status;
+        if (frd.online)
+            status = "online";
+        else
+            status = "offline";
+        printf("user:%d status:%s \n",frd.frid,status);
+    }
+}
 
 void do_read(int fd)
 {
@@ -232,6 +298,8 @@ void do_read(int fd)
         case LOGIN:
         case SIGNUP:
         case FRIENDREQUEST:
+        case DELFRIEND:
+        case CREATGROUP:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
@@ -242,6 +310,10 @@ void do_read(int fd)
         case ADDFRIEND:
             std::cout << choice << std::endl;
             save_friend_request(rmg.mg);
+            break;
+        case SHOWFRIEND:
+            std::cout << choice << std::endl;
+            friendShow(rmg.mg);
             break;
         default:
             std::cout << "default" << std::endl;
@@ -290,6 +362,9 @@ void mainDisplay(int sfd)
             case FRIENDCHAT:
                 friChat(sfd);
                 break;
+            case SHOWFRIEND:
+                showFriend(sfd);
+                break;
             case ADDFRIEND:
                 addFriend(sfd);
                 break;
@@ -298,6 +373,12 @@ void mainDisplay(int sfd)
                 break;
             case DELFRIEND:
                 delfriend(sfd);
+                break;
+            case CREATGROUP:
+                createGroup(sfd);
+                break;
+            case ADDMEMBER:
+                addMember(sfd);
                 break;
             default:;
         }
