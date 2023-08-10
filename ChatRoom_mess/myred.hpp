@@ -54,11 +54,26 @@ public:
         this->badReply(reply);
 
         if (reply->type == REDIS_REPLY_NIL){
+            freeReplyObject(reply);
             return "";
         }
         ret = reply->str;
         freeReplyObject(reply);
         return ret;
+    }
+    bool isnull(std::string key)
+    {
+        redisReply* reply;
+        reply = (redisReply*)redisCommand(context,"LLEN %s",key.c_str());
+
+        this->badReply(reply);
+
+        if (reply->integer == 0){
+            freeReplyObject(reply);
+            return 1;
+        }
+        freeReplyObject(reply);
+        return 0;
     }
     bool badReply(redisReply *);
 };

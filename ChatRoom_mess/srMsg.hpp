@@ -132,4 +132,54 @@ struct rMsg{
     std::string toStr() { return this->toJson().dump(); }
 };
 
+struct chatMsg{
+    uint32_t fid;
+    std::string content;
+
+    chatMsg(std::string info){
+        nlohmann::json j = nlohmann::json::parse(info);
+        fid     =  j["fid"];
+        content =  j["content"];
+    }
+    chatMsg() = default;
+    nlohmann::json toJson(){
+        nlohmann::json j;
+        j["fid"] = fid;
+        j["content"] = content;
+        return j;
+    }
+    std::string toStr() { return this->toJson().dump(); }
+};
+
+struct groupReq{
+    uint32_t uid;
+    uint32_t gid;
+    int      status=0;
+
+    groupReq(uint32_t tuid,uint32_t tgid):
+        uid(tuid),gid(tgid){}
+    groupReq(std::string info){
+        nlohmann::json j = nlohmann::json::parse(info);
+        uid     =  j["uid"];
+        gid     =  j["gid"];
+        status  =  j["status"];
+    }
+    groupReq() = default;
+    nlohmann::json toJson(){
+        nlohmann::json j;
+        j["uid"]    =  uid;
+        j["gid"]    =  gid;
+        j["status"] =  status;
+        return j;
+    }
+    std::string toStr() { return this->toJson().dump(); }
+};
+
+void sendmg(int fd,rMsg *msg,std::string mg)
+{
+    msg->mg = mg;
+    sendMsg(fd,msg->toStr().c_str());
+}
+
+
 #endif

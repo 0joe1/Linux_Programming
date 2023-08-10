@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sstream>
+#include <fstream>
 #include "menu.hpp"
 #include "socket.hpp"
 #include "srMsg.hpp"
@@ -13,7 +14,11 @@
 
 #define MAXEVENTS 20
 
+
+const char* blank = "                                   ";
 const char* friend_requests = "friend_requests.txt";
+const char* group_requests  = "group_requests.txt";
+const char* prvchat_message = "prvchat_message.txt";
 
 int sfd;
 bool islog;
@@ -30,7 +35,9 @@ enum tasks {
     DELFRIEND,
     FRIENDREQUEST,
     CREATGROUP,
-    ADDMEMBER
+    ADDMEMBER,
+    ADDGROUP,
+    GROUPREQUEST
 };
 
 pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
@@ -65,6 +72,10 @@ void cliSign(int fd) {
     msg.flag = 1;
     std::cout << "Please input UID" << std::endl;
     scanf("%u", &msg.uid);
+    while (msg.uid <= 0){
+        std::cout << "uid 必须大于0" << std::endl;
+        scanf("%u", &msg.uid);
+    }
     myid = msg.uid;
     std::cout << "Please input your password" << std::endl;
     getchar();
@@ -92,6 +103,32 @@ void cliLog(int fd) {
     pthread_mutex_unlock(&mlog);
 }
 
+void load_prvchat_message(uint32_t id)
+{
+    std::vector<chatMsg> messages;
+    std::string filename = std::to_string(myid)+prvchat_message;
+    std::ifstream file(filename);
+    std::ofstream tempFile("temp_prvchat_message.txt");
+    if (file.is_open())
+    {
+        std::string line;
+        while (getline(file,line))
+        {
+            chatMsg msg;
+            std::istringstream record(line);
+            record >> msg.fid >> msg.content;
+            if (msg.fid == id)
+                std::cout << msg.content << std::endl;
+            else
+                tempFile << line << std::endl;
+        }
+    }
+    file.close();
+    tempFile.close();
+    std::remove(prvchat_message);
+    std::rename("temp_prvchat_message.txt",filename.c_str());
+}
+
 void friChat(int fd)
 {
     Msg msg;
@@ -100,9 +137,14 @@ void friChat(int fd)
     msg.uid = myid;
     std::cout << "请输入您想聊天的用户的UID" << std::endl;
     scanf("%u",&msg.touid);
+    while (msg.uid <= 0){
+        std::cout << "请输入大于0的uid号" << std::endl;
+        scanf("%u",&msg.touid);
+    }
     talkto = msg.touid;
 
     printf("--------与用户%d的聊天(按Q退出)-----------",talkto);
+    load_prvchat_message(talkto);
     std::string content;
     std::cin >> content;
     while (content != "Q")
@@ -111,6 +153,7 @@ void friChat(int fd)
         sendMsg(fd,msg.toStr().c_str());
         std::cin >> content;
     }
+    talkto = 0;
 }
 
 void showFriend(int fd)
@@ -120,6 +163,9 @@ void showFriend(int fd)
 
     msg.uid = myid;
     sendMsg(fd,msg.toStr().c_str());
+    pthread_mutex_lock(&mtx);
+    pthread_cond_wait(&cm,&mtx);
+    pthread_mutex_unlock(&mtx);
 }
 
 void addFriend(int fd)
@@ -133,9 +179,6 @@ void addFriend(int fd)
     getchar();
 
     sendMsg(fd,msg.toStr().c_str());
-    pthread_mutex_lock(&mlog);
-    pthread_cond_wait(&colog,&mlog);
-    pthread_mutex_unlock(&mlog);
 }
 
 void friend_req(int fd)
@@ -153,7 +196,6 @@ void friend_req(int fd)
             myerr("open friend_requests");
     }
 
-    off_t off_set = 0;
     char* buffer = (char*)malloc(sizeof(uint32_t));
 
     read(reqfd,buffer,sizeof(uint32_t));
@@ -174,6 +216,10 @@ void friend_req(int fd)
     sendMsg(fd,msg.toStr().c_str());
 
     deleteBefore(&reqfd,friend_requests);
+}
+void group_req(int fd)
+{
+
 }
 
 void delfriend(int fd)
@@ -219,6 +265,19 @@ void addMember(int fd)
     sendMsg(fd,msg.toStr().c_str());
 }
 
+void addGroup(int fd)
+{
+    Msg msg;
+    msg.flag = ADDGROUP;
+
+    msg.touid = myid;
+    std::cout << "请输入您想加入的群聊id" << std::endl;
+    scanf("%u",&msg.uid);
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
 
 void print_message(std::string buf)
 {
@@ -234,9 +293,34 @@ void print_message(std::string buf)
     pthread_cond_signal(&colog);
 }
 
+void save_prvchat_message(chatMsg chatmsg)
+{
+    std::string filename = std::to_string(myid)+prvchat_message;
+    std::ofstream file(filename,std::ios::app);
+
+    std::string content = std::to_string(chatmsg.fid)+" "+chatmsg.content;
+    if (file.is_open())
+    {
+        std::cout << blank << chatmsg.fid << "send you a message" << std::endl;
+        std::cout << content << std::endl;
+        file << content << std::endl;
+    }
+    else
+    {
+        std::cout << "failed to open the file" << std::endl;
+    }
+}
+
 void prv_recv(std::string buf)
 {
-    std::cout << buf << std::endl;
+    chatMsg chatmsg(buf);
+    if (chatmsg.fid == talkto){
+        std::cout << chatmsg.fid << ":"<< chatmsg.content << std::endl;
+    }
+    else
+    {
+        save_prvchat_message(chatmsg);
+    }
 }
 
 void save_friend_request(std::string buf)
@@ -275,6 +359,7 @@ void friendShow(std::string buf)
         frv.push_back(info);
     }
 
+    pthread_mutex_lock(&mtx);
     for (auto frd : frv)
     {
         const char* status;
@@ -284,7 +369,27 @@ void friendShow(std::string buf)
             status = "offline";
         printf("user:%d status:%s \n",frd.frid,status);
     }
+    pthread_mutex_unlock(&mtx);
+    pthread_cond_signal(&cm);
 }
+
+void save_group_request(std::string buf)
+{
+    groupReq gq(buf);
+    std::string filename = group_requests + std::to_string(myid);
+    std::string content  = std::to_string(gq.uid)+" "+std::to_string(gq.gid)+" "+std::to_string(gq.status);
+    std::ofstream file(filename,std::ios::app);
+
+    if (file.is_open())
+    {
+        file << content << std::endl;
+    }
+    else
+    {
+        std::cout << "failed to open the file" << std::endl;
+    }
+}
+
 
 void do_read(int fd)
 {
@@ -297,9 +402,9 @@ void do_read(int fd)
     {
         case LOGIN:
         case SIGNUP:
-        case FRIENDREQUEST:
         case DELFRIEND:
         case CREATGROUP:
+        case ADDMEMBER:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
@@ -315,6 +420,14 @@ void do_read(int fd)
             std::cout << choice << std::endl;
             friendShow(rmg.mg);
             break;
+        case ADDGROUP:
+            std::cout << choice << std::endl;
+            save_group_request(rmg.mg);
+            break;
+        //case FRIENDREQUEST:
+            //std::cout << choice << std::endl;
+            //friendRequest(rmg.mg);
+            //break;
         default:
             std::cout << "default" << std::endl;
     }
@@ -348,7 +461,7 @@ void mainDisplay(int sfd)
         else
             std::cout << after_login_content << std::endl;
 
-        std::cin >> choice;
+        scanf("%d",&choice);
         getchar();
 
         switch(choice)
@@ -379,6 +492,12 @@ void mainDisplay(int sfd)
                 break;
             case ADDMEMBER:
                 addMember(sfd);
+                break;
+            case ADDGROUP:
+                addGroup(sfd);
+                break;
+            case GROUPREQUEST:
+                group_req(sfd);
                 break;
             default:;
         }

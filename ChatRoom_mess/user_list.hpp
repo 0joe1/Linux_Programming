@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include "user.hpp"
 #include "myred.hpp"
+#include "srMsg.hpp"
 
 enum choice{
     INDIVIDUAL,
@@ -43,14 +44,21 @@ public:
         return 0;
     }
 
+    bool hasGroup();
+
     void addMember(uint32_t uid);
     void delMember(uint32_t uid);
+
     std::vector<uint32_t> get_list();
     std::vector<uint32_t> get_admin_list();
+
     bool isMember(uint32_t uid);
     bool isAdmin(uint32_t uid);
     bool isOwner(uint32_t uid);
-    bool hasGroup();
+
+    bool groupOnline(std::map<uint32_t,int> fdMap);
+
+    void send_to_high(std::map<uint32_t,int>,rMsg*,std::string);
 };
 
 void UserList::addMember(uint32_t uid)
@@ -140,7 +148,7 @@ bool UserList::isAdmin(uint32_t uid)
 
 bool UserList::isOwner(uint32_t uid)
 {
-    
+    return uid == owner;
 }
 bool UserList::hasGroup()
 {
@@ -153,4 +161,35 @@ bool UserList::hasGroup()
     freeReplyObject(reply);
 
     return 1;
+}
+
+bool UserList::groupOnline(std::map<uint32_t,int> fdMap)
+{
+    if (fdMap[owner] > 0){
+        return 1;
+    }
+    std::vector<uint32_t> admvec = get_admin_list();
+    for (auto admin : admvec)
+    {
+        if (fdMap[admin] > 0)
+            return 1;
+    }
+    return 0;
+}
+
+void UserList::send_to_high(std::map<uint32_t,int> fdMap,rMsg* smsg,std::string content)
+{
+    if (fdMap[owner] > 0){
+        int ownfd = fdMap[owner];
+        sendmg(ownfd,smsg,content);
+    }
+    std::vector<uint32_t> admvec = get_admin_list();
+    for (auto admin:admvec)
+    {
+        if (fdMap[admin]>0)
+        {
+            int admfd = fdMap[admin];
+            sendmg(admfd,smsg,content);
+        }
+    }
 }

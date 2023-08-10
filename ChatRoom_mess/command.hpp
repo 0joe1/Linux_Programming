@@ -21,7 +21,8 @@ enum tasks {
     DELFRIEND,
     FRIENDREQUEST,
     CREATGROUP,
-    ADDMEMBER
+    ADDMEMBER,
+    ADDGROUP
 };
 
 bool isNumeric(std::string const &str)
@@ -53,7 +54,7 @@ struct tasklist{
     static void delFriend(void*);
     static void creatGroup(void*);
     static void addMember(void*);
-
+    static void addGroup(void*);
 };
 
 class Command{
@@ -215,11 +216,6 @@ void tasklist::signup(void* arg)
 }
 
 
-void sendmg(int fd,rMsg *msg,std::string mg)
-{
-    msg->mg = mg;
-    sendMsg(fd,msg->toStr().c_str());
-}
 
 void tasklist::friendChat(void* arg)
 {
@@ -240,10 +236,13 @@ void tasklist::friendChat(void* arg)
         return ;
     }
 
-    std::string content  =  msg.content;
+    chatMsg chatmsg;
+    chatmsg.fid = fuid;
+    chatmsg.content = msg.content;
     std::string key = std::to_string(fuid) + ":"+ std::to_string(touid) + ":privatechat";
-    hred.lpush(key,content);
+    hred.lpush(key,chatmsg.toStr().c_str());
 
+    std::string content;
     int tofd;
     if (fdMap.count(touid) == 0){
         sendmg(cmd->fd,&smsg,"该用户未上线");
@@ -318,7 +317,7 @@ void tasklist::addFriend(void* arg)
         content = std::to_string(fuid);
         hred.lpush(key,content);
     }
-    if (fdMap.count(touid) == -1){
+    if (fdMap.count(touid) == 0){
         epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
@@ -384,9 +383,12 @@ void tasklist::creatGroup(void* arg)
 
     Command *cmd = static_cast<Command*>(arg);
     Msg msg(cmd->m);
+    Hred hred(cmd->context);
 
     UserList uslt(cmd->context,"userlist",GROUP,msg.touid);
-    if (uslt.hasGroup()){
+    redisReply* reply = hred.get(msg.touid);
+
+    if (reply->type != REDIS_REPLY_NIL || uslt.hasGroup()){
         sendmg(cmd->fd,&smsg,"该群id已被占用");
         epoll_add(cmd->fd,cmd->epfd);
         return;
@@ -398,6 +400,7 @@ void tasklist::creatGroup(void* arg)
 
 
     sendmg(cmd->fd,&smsg,"创建群聊成功");
+    epoll_add(cmd->fd,cmd->epfd);
 }
 
 void tasklist::addMember(void *arg)
@@ -408,7 +411,48 @@ void tasklist::addMember(void *arg)
     Command *cmd = static_cast<Command*>(arg);
     Msg msg(cmd->m);
 
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.isAdmin(msg.uid) && !grlt.isOwner(msg.uid)){
+        sendmg(cmd->fd,&smsg,"权限不足！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (grlt.isMember(msg.adduid)){
+        sendmg(cmd->fd,&smsg,"该用户已是群成员");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    grlt.addMember(msg.adduid);
 
+    sendmg(cmd->fd,&smsg,"添加成员成功");
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::addGroup(void *arg)
+{
+    rMsg smsg;
+    smsg.flag = ADDGROUP;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Hred hred(cmd->context);
+    Msg msg(cmd->m);
+
+    groupReq gq(msg.uid,msg.touid);
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.hasGroup()){
+        sendmg(cmd->fd,&smsg,"不存在该群");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (!grlt.groupOnline(fdMap)){
+        std::string key = std::to_string(msg.uid)+":"+std::to_string(msg.touid)+":grouprequest";
+        if (hred.isnull(key))
+            hred.lpush(key,gq.toStr().c_str());
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    grlt.send_to_high(fdMap,&smsg,gq.toStr());
 }
 
 void test(void *arg)
@@ -456,6 +500,9 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case ADDMEMBER:
             work->func = funcs.addMember;
+            break;
+        case ADDGROUP:
+            work->func = funcs.addGroup;
             break;
         default:;
     }
