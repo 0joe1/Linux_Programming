@@ -34,7 +34,9 @@ enum tasks {
     ADDFRIEND,
     DELFRIEND,
     FRIENDREQUEST,
+    GROUPCHAT,
     CREATGROUP,
+    SHOWGROUP,
     ADDMEMBER,
     ADDGROUP,
     GROUPREQUEST
@@ -132,19 +134,47 @@ void load_prvchat_message(uint32_t id)
 void friChat(int fd)
 {
     Msg msg;
-    msg.flag = 2;
+    msg.flag = FRIENDCHAT;
 
     msg.uid = myid;
     std::cout << "请输入您想聊天的用户的UID" << std::endl;
     scanf("%u",&msg.touid);
-    while (msg.uid <= 0){
+    while (msg.touid <= 0){
         std::cout << "请输入大于0的uid号" << std::endl;
         scanf("%u",&msg.touid);
     }
+    getchar();
     talkto = msg.touid;
 
-    printf("--------与用户%d的聊天(按Q退出)-----------",talkto);
+    printf("--------与用户%d的聊天(按Q退出)-----------\n",talkto);
     load_prvchat_message(talkto);
+    std::string content;
+    std::cin >> content;
+    while (content != "Q")
+    {
+        msg.content = content;
+        sendMsg(fd,msg.toStr().c_str());
+        std::cin >> content;
+    }
+    talkto = 0;
+}
+
+void groupChat(int fd)
+{
+    Msg msg;
+    msg.flag = GROUPCHAT;
+
+    msg.uid = myid;
+    std::cout << "想在哪个组织进行公开发言" << std::endl;
+    scanf("%u",&msg.touid);
+    while (msg.touid <= 0){
+        std::cout << "请输入大于0的id号" << std::endl;
+        scanf("%u",&msg.touid);
+    }
+    getchar();
+    talkto = msg.touid;
+
+    printf("--------在群%d内的聊天(按Q退出)-----------\n",talkto);
     std::string content;
     std::cin >> content;
     while (content != "Q")
@@ -181,6 +211,17 @@ void addFriend(int fd)
     sendMsg(fd,msg.toStr().c_str());
 }
 
+std::string get_yn(void)
+{
+    std::string choice;
+    getline(std::cin,choice);
+    while (choice != "y" && choice != "n"){
+        std::cout << "Please input y or n" << std::endl;
+        getline(std::cin,choice);
+    }
+    return choice;
+}
+
 void friend_req(int fd)
 {
     Msg msg;
@@ -203,12 +244,7 @@ void friend_req(int fd)
     uint32_t fuid = strtoul(buffer,NULL,10);
     std::string request = std::to_string(fuid) + " wants you! Accept?(y/n)";
     std::cout << request << std::endl;
-    std::string choice;
-    getline(std::cin,choice);
-    while (choice != "y" && choice != "n"){
-        std::cout << "Please input y or n" << std::endl;
-        getline(std::cin,choice);
-    }
+    std::string choice = get_yn();
 
     msg.uid     =  myid;
     msg.touid   =  fuid;
@@ -217,9 +253,59 @@ void friend_req(int fd)
 
     deleteBefore(&reqfd,friend_requests);
 }
+
 void group_req(int fd)
 {
+    Msg msg;
+    msg.flag = GROUPREQUEST;
 
+    const char* temp = "temp_group_requests";
+    std::string filename = group_requests + std::to_string(myid);
+    std::string tmpfilename = temp + std::to_string(myid);
+
+    std::ifstream file(filename);
+    std::ofstream tmpfile(tmpfilename);
+    if (!file.is_open()){
+        std::cout << "error when open group_requests file" << std::endl;
+        return;
+    }
+
+    std::string line,choice("y");
+    while(getline(file,line))
+    {
+        if (choice == "n")
+        {
+            tmpfile << line << std::endl;
+            continue;
+        }
+
+        groupReq gq(line);
+        std::string ask = std::to_string(gq.uid) + "想要加入群聊" + std::to_string(gq.gid);
+        switch(gq.status)
+        {
+            case 0:
+                std::cout << ask << "  [同意(y)/拒绝(n)]" << std::endl;
+                msg.uid     = gq.uid;
+                msg.touid   = gq.gid;
+                msg.adduid  = myid;
+                msg.content = get_yn();
+                sendMsg(fd,msg.toStr().c_str());
+                break;
+            case 1:
+                std::cout << ask << "  然而已被拒绝" << std::endl;
+                break;
+            case 2:
+                std::cout << ask << "  已同意" << std::endl;
+                break;
+            default:;
+        }
+        std::cout << "继续读取下一条？(y/n)" << std::endl;
+        choice = get_yn();
+    }
+    file.close();
+    tmpfile.close();
+    std::remove(filename.c_str());
+    std::rename(filename.c_str(),tmpfilename.c_str());
 }
 
 void delfriend(int fd)
@@ -276,6 +362,21 @@ void addGroup(int fd)
     getchar();
 
     sendMsg(fd,msg.toStr().c_str());
+}
+
+void showGroup(int fd)
+{
+    Msg msg;
+    msg.flag = SHOWGROUP;
+
+    std::cout << "想查看哪个组织的成员们呢,input gid" << std::endl;
+    scanf("%u",&msg.uid);
+    getchar();
+    sendMsg(fd,msg.toStr().c_str());
+
+    pthread_mutex_lock(&mtx);
+    pthread_cond_wait(&cm,&mtx);
+    pthread_mutex_unlock(&mtx);
 }
 
 
@@ -373,16 +474,53 @@ void friendShow(std::string buf)
     pthread_cond_signal(&cm);
 }
 
+void groupShow(std::string buf)
+{
+    struct groupInfo{
+        uint32_t uid;
+        int      level;
+        int      online;
+    };
+
+    groupInfo info;
+    std::vector<groupInfo> gpv;
+    std::istringstream record(buf);
+
+    while (record >> info.uid >> info.level >> info.online ){
+        gpv.push_back(info);
+    }
+
+    pthread_mutex_lock(&mtx);
+    for (auto gpm : gpv)
+    {
+        const char *level,*status;
+        if (gpm.level == 1)
+            level = "平民";
+        else if (gpm.level == 2)
+            level = "干部";
+        else
+            level = "群主";
+
+        if (gpm.online)
+            status = "online";
+        else
+            status = "offline";
+        printf("user:%d level:%s status:%s \n",gpm.uid,level,status);
+    }
+    pthread_mutex_unlock(&mtx);
+    pthread_cond_signal(&cm);
+}
+
 void save_group_request(std::string buf)
 {
     groupReq gq(buf);
     std::string filename = group_requests + std::to_string(myid);
-    std::string content  = std::to_string(gq.uid)+" "+std::to_string(gq.gid)+" "+std::to_string(gq.status);
+    //std::string content  = std::to_string(gq.uid)+" "+std::to_string(gq.gid)+" "+std::to_string(gq.status);
     std::ofstream file(filename,std::ios::app);
 
     if (file.is_open())
     {
-        file << content << std::endl;
+        file << buf << std::endl;
     }
     else
     {
@@ -390,6 +528,40 @@ void save_group_request(std::string buf)
     }
 }
 
+void change_status(std::string filename,uint32_t uid,uint32_t gid,int newStatus)
+{
+    std::string tmpfilename = "tmp"+filename;
+    std::string line;
+    std::ifstream file(filename);
+    std::ofstream tmpfile(tmpfilename);
+
+    while(getline(file,line))
+    {
+        groupReq gq(line);
+        if (gq.uid != uid || gq.gid != gid)
+        {
+            tmpfile << line << std::endl;
+            continue;
+        }
+        gq.status = newStatus;
+        tmpfile << gq.toStr() << std::endl;
+    }
+    file.close();
+    tmpfile.close();
+    std::remove(filename.c_str());
+    std::rename(tmpfilename.c_str(),filename.c_str());
+}
+
+void handle_group_request(std::string buf)
+{
+    if (buf.find("您") != std::string::npos){
+        std::cout << buf << std::endl;
+        return;
+    }
+    groupReq gq(buf);
+    std::string filename = group_requests + std::to_string(myid);
+    change_status(filename,gq.uid,gq.gid,gq.status);
+}
 
 void do_read(int fd)
 {
@@ -405,6 +577,7 @@ void do_read(int fd)
         case DELFRIEND:
         case CREATGROUP:
         case ADDMEMBER:
+        case FRIENDREQUEST:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
@@ -423,6 +596,12 @@ void do_read(int fd)
         case ADDGROUP:
             std::cout << choice << std::endl;
             save_group_request(rmg.mg);
+            break;
+        case GROUPREQUEST:
+            handle_group_request(rmg.mg);
+            break;
+        case SHOWGROUP:
+            groupShow(rmg.mg);
             break;
         //case FRIENDREQUEST:
             //std::cout << choice << std::endl;
@@ -461,8 +640,13 @@ void mainDisplay(int sfd)
         else
             std::cout << after_login_content << std::endl;
 
-        scanf("%d",&choice);
-        getchar();
+        std::string t;
+        getline(std::cin,t);
+        if (!isNumeric(t)){
+            std::cout << "怎么有人连数字都不会输？\\流汗黄豆 (按666刷新)" << std::endl;
+            getline(std::cin,t);
+        }
+        choice = std::stoi(t);
 
         switch(choice)
         {
@@ -498,6 +682,12 @@ void mainDisplay(int sfd)
                 break;
             case GROUPREQUEST:
                 group_req(sfd);
+                break;
+            case SHOWGROUP:
+                showGroup(sfd);
+                break;
+            case GROUPCHAT:
+                groupChat(sfd);
                 break;
             default:;
         }

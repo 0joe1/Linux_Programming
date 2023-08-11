@@ -35,6 +35,9 @@ public:
         owner = newOwner;
         redisCommand(context,"HSET %u:owner owner %u",gid,newOwner);
     }
+    uint32_t getOwner(void){
+        return owner;
+    }
     bool badReply(redisReply* reply,std::string value){
         if (reply == NULL){
             std::cout << "bad reply when" << value << std::endl;
@@ -59,6 +62,7 @@ public:
     bool groupOnline(std::map<uint32_t,int> fdMap);
 
     void send_to_high(std::map<uint32_t,int>,rMsg*,std::string);
+    void send_to_all(std::map<uint32_t, int> fdMap,rMsg* smsg,std::string content);
 };
 
 void UserList::addMember(uint32_t uid)
@@ -192,4 +196,22 @@ void UserList::send_to_high(std::map<uint32_t,int> fdMap,rMsg* smsg,std::string 
             sendmg(admfd,smsg,content);
         }
     }
+}
+
+void UserList::send_to_all(std::map<uint32_t, int> fdMap,rMsg* smsg,std::string content)
+{
+    if (fdMap[owner] > 0){
+        int ownfd = fdMap[owner];
+        sendmg(ownfd,smsg,content);
+    }
+    std::vector<uint32_t> usvt = get_list();
+    for (auto member:usvt)
+    {
+        if (fdMap[member]>0)
+        {
+            int memfd = fdMap[member];
+            sendmg(memfd,smsg,content);
+        }
+    }
+
 }

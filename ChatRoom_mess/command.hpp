@@ -20,9 +20,12 @@ enum tasks {
     ADDFRIEND,
     DELFRIEND,
     FRIENDREQUEST,
+    GROUPCHAT,
     CREATGROUP,
+    SHOWGROUP,
     ADDMEMBER,
-    ADDGROUP
+    ADDGROUP,
+    GROUPREQUEST
 };
 
 bool isNumeric(std::string const &str)
@@ -55,6 +58,9 @@ struct tasklist{
     static void creatGroup(void*);
     static void addMember(void*);
     static void addGroup(void*);
+    static void group_req(void*);
+    static void showGroup(void*);
+    static void groupChat(void*);
 };
 
 class Command{
@@ -220,7 +226,7 @@ void tasklist::signup(void* arg)
 void tasklist::friendChat(void* arg)
 {
     rMsg smsg;
-    smsg.flag = 2;
+    smsg.flag = FRIENDCHAT;
     Command *cmd = static_cast<Command*>(arg);
     Hred hred(cmd->context);
 
@@ -256,6 +262,31 @@ void tasklist::friendChat(void* arg)
     epoll_add(cmd->fd,cmd->epfd);
 }
 
+void tasklist::groupChat(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = GROUPCHAT;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Hred hred(cmd->context);
+
+    Msg msg(cmd->m);
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.hasGroup()){
+        sendmg(cmd->fd,&smsg,"查无此群!");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    chatMsg chatmsg;
+    chatmsg.fid = msg.uid;
+    chatmsg.content = msg.content;
+    std::string key = std::to_string(msg.uid) + ":"+ std::to_string(msg.touid) + ":groupchat";
+    hred.lpush(key,chatmsg.toStr().c_str());
+
+    grlt.send_to_all(fdMap,&smsg,chatmsg.toStr());
+}
+
 void tasklist::showFriend(void* arg)
 {
     rMsg smsg;
@@ -277,6 +308,40 @@ void tasklist::showFriend(void* arg)
         ss << frid << " " << online << " ";
     }
 
+    std::string result = ss.str();
+    sendmg(cmd->fd,&smsg,result);
+
+    epoll_add(cmd->fd,cmd->epfd);
+}
+void tasklist::showGroup(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = SHOWGROUP;
+
+    Command* cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList grlt(cmd->context,"userlist",GROUP,msg.uid);
+    std::vector<uint32_t> users = grlt.get_list();
+
+    std::stringstream ss;
+
+    //owner 特殊处理下
+    uint32_t owner = grlt.getOwner();
+    int owneronline = 0;
+    if (fdMap.count(owner) > 0)
+        owneronline = 1;
+    ss << owner << " " << 3 << " " << owneronline << " ";
+
+    for (auto user : users)
+    {
+        int online = 0,level = 1;
+        if (fdMap.count(user)>0)
+            online = 1;
+        if (grlt.isAdmin(user))
+            level = 2;
+        ss << user << " " << level << " " << online << " ";
+    }
     std::string result = ss.str();
     sendmg(cmd->fd,&smsg,result);
 
@@ -356,6 +421,34 @@ void tasklist::friend_req(void* arg)
     std::string s = "恭喜您，与用户" + std::to_string(fuid) + "双向奔赴";
     sendmg(tofd,&smsg,s);
 
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::group_req(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = GROUPREQUEST;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+    groupReq gq(msg.uid,msg.touid);
+
+    int rfd = fdMap[msg.uid];
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (msg.content == "n")
+    {
+        gq.status = 2;
+        std::string content = "您想要潜入群" + std::to_string(msg.touid) + "的幻想被" + std::to_string(msg.adduid)+"击碎了";
+        sendmg(rfd,&smsg,content);
+        grlt.send_to_high(fdMap,&smsg,gq.toStr());
+
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    gq.status = 1;
+    grlt.addMember(msg.uid);
+    grlt.send_to_high(fdMap,&smsg,gq.toStr());
     epoll_add(cmd->fd,cmd->epfd);
 }
 
@@ -455,6 +548,7 @@ void tasklist::addGroup(void *arg)
     grlt.send_to_high(fdMap,&smsg,gq.toStr());
 }
 
+
 void test(void *arg)
 {
     std::cout << "test succeed" << std::endl;
@@ -503,6 +597,15 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case ADDGROUP:
             work->func = funcs.addGroup;
+            break;
+        case GROUPREQUEST:
+            work->func = funcs.group_req;
+            break;
+        case SHOWGROUP:
+            work->func = funcs.showGroup;
+            break;
+        case GROUPCHAT:
+            work->func = funcs.groupChat;
             break;
         default:;
     }
