@@ -6,7 +6,6 @@
 #include "srMsg.hpp"
 #include "myred.hpp"
 #include "user.hpp"
-#include "menu.hpp"
 #include "thread_pool.hpp"
 #include "user_list.hpp"
 
@@ -20,12 +19,15 @@ enum tasks {
     ADDFRIEND,
     DELFRIEND,
     FRIENDREQUEST,
-    GROUPCHAT,
     CREATGROUP,
+    GROUPCHAT,
     SHOWGROUP,
     ADDMEMBER,
+    KICKMEMBER,
+    ADDADMIN,
+    DELADMIN,
     ADDGROUP,
-    GROUPREQUEST
+    GROUPREQUEST,
 };
 
 bool isNumeric(std::string const &str)
@@ -36,7 +38,6 @@ bool isNumeric(std::string const &str)
     }
     return !str.empty() && it == str.end();
 }
-
 uint32_t readUint(int fd){
     std::string t;
     t = readMsg(fd);
@@ -47,20 +48,23 @@ uint32_t readUint(int fd){
 }
 
 struct tasklist{
-    static void menu(void*);
-    static void login(void*);
-    static void signup(void*);
-    static void friendChat(void*);
-    static void showFriend(void*);
-    static void addFriend(void*);
-    static void friend_req(void*);
-    static void delFriend(void*);
-    static void creatGroup(void*);
-    static void addMember(void*);
-    static void addGroup(void*);
-    static void group_req(void*);
-    static void showGroup(void*);
-    static void groupChat(void*);
+    static void menu        (void*);
+    static void login       (void*);
+    static void signup      (void*);
+    static void friendChat  (void*);
+    static void showFriend  (void*);
+    static void addFriend   (void*);
+    static void friend_req  (void*);
+    static void delFriend   (void*);
+    static void creatGroup  (void*);
+    static void addMember   (void*);
+    static void kickMember  (void*);
+    static void addGroup    (void*);
+    static void group_req   (void*);
+    static void showGroup   (void*);
+    static void groupChat   (void*);
+    static void addAdmin    (void*);
+    static void delAdmin    (void*);
 };
 
 class Command{
@@ -280,11 +284,14 @@ void tasklist::groupChat(void* arg)
 
     chatMsg chatmsg;
     chatmsg.fid = msg.uid;
+    chatmsg.gid = msg.touid;
     chatmsg.content = msg.content;
     std::string key = std::to_string(msg.uid) + ":"+ std::to_string(msg.touid) + ":groupchat";
     hred.lpush(key,chatmsg.toStr().c_str());
 
     grlt.send_to_all(fdMap,&smsg,chatmsg.toStr());
+
+    epoll_add(cmd->fd,cmd->epfd);
 }
 
 void tasklist::showFriend(void* arg)
@@ -505,6 +512,11 @@ void tasklist::addMember(void *arg)
     Msg msg(cmd->m);
 
     UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.hasGroup()){
+        sendmg(cmd->fd,&smsg,"查无此群！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
     if (!grlt.isAdmin(msg.uid) && !grlt.isOwner(msg.uid)){
         sendmg(cmd->fd,&smsg,"权限不足！");
         epoll_add(cmd->fd,cmd->epfd);
@@ -520,6 +532,106 @@ void tasklist::addMember(void *arg)
     sendmg(cmd->fd,&smsg,"添加成员成功");
     epoll_add(cmd->fd,cmd->epfd);
 }
+void tasklist::kickMember(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = KICKMEMBER;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    //相应权限检查
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.hasGroup()){
+        sendmg(cmd->fd,&smsg,"查无此群！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (grlt.isOwner(msg.adduid)){
+        sendmg(cmd->fd,&smsg,"群主之位不能简单删除，只能转让");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (!grlt.isMember(msg.adduid)){
+        sendmg(cmd->fd,&smsg,"你不能踢一个不存在的人");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (!grlt.isAdmin(msg.uid) && !grlt.isOwner(msg.uid)){
+        sendmg(cmd->fd,&smsg,"您没有踢人的权限");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    if (grlt.isAdmin(msg.adduid))
+    {
+        if (!grlt.isOwner(msg.uid)){
+            sendmg(cmd->fd,&smsg,"你不能踢一个比你等级高的人");
+            epoll_add(cmd->fd,cmd->epfd);
+            return;
+        }
+        grlt.delAdmin(msg.adduid);
+        grlt.delMember(msg.adduid);
+        sendmg(cmd->fd,&smsg,"踢人成功！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    grlt.delMember(msg.adduid);
+    sendmg(cmd->fd,&smsg,"踢人成功！");
+    epoll_add(cmd->fd,cmd->epfd);
+    return;
+}
+
+void tasklist::addAdmin(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = ADDADMIN;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.isOwner(msg.uid)){
+        sendmg(cmd->fd,&smsg,"权限不足！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (grlt.isAdmin(msg.adduid)){
+        sendmg(cmd->fd,&smsg,"该用户已是管理员也");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    grlt.addAdmin(msg.adduid);
+
+    sendmg(cmd->fd,&smsg,"添加管理员成功");
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::delAdmin(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = DELADMIN;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.isOwner(msg.uid)){
+        sendmg(cmd->fd,&smsg,"权限不足！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (!grlt.isAdmin(msg.adduid)){
+        sendmg(cmd->fd,&smsg,"删除成功");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    grlt.delAdmin(msg.adduid);
+
+    sendmg(cmd->fd,&smsg,"删除管理员成功");
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
 
 void tasklist::addGroup(void *arg)
 {
@@ -595,6 +707,9 @@ unique_ptr<TASK> Command::parse_command()
         case ADDMEMBER:
             work->func = funcs.addMember;
             break;
+        case KICKMEMBER:
+            work->func = funcs.kickMember;
+            break;
         case ADDGROUP:
             work->func = funcs.addGroup;
             break;
@@ -606,6 +721,12 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case GROUPCHAT:
             work->func = funcs.groupChat;
+            break;
+        case ADDADMIN:
+            work->func = funcs.addAdmin;
+            break;
+        case DELADMIN:
+            work->func = funcs.delAdmin;
             break;
         default:;
     }

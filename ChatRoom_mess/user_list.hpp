@@ -51,6 +51,8 @@ public:
 
     void addMember(uint32_t uid);
     void delMember(uint32_t uid);
+    void addAdmin(uint32_t uid);
+    void delAdmin(uint32_t uid);
 
     std::vector<uint32_t> get_list();
     std::vector<uint32_t> get_admin_list();
@@ -76,7 +78,26 @@ void UserList::addMember(uint32_t uid)
 void UserList::delMember(uint32_t uid)
 {
     redisReply* reply = (redisReply*)redisCommand(context,"SREM %u:%s %u",gid,listType,uid);
-    badReply(reply,"addMember");
+    badReply(reply,"delMember");
+
+    freeReplyObject(reply);
+    return;
+}
+void UserList::addAdmin(uint32_t uid)
+{
+    if (!isMember(uid)){
+        addMember(uid);
+    }
+    redisReply* reply = (redisReply*)redisCommand(context,"SADD %u:admin %u",gid,uid);
+    badReply(reply,"addAdmin");
+
+    freeReplyObject(reply);
+    return;
+}
+void UserList::delAdmin(uint32_t uid)
+{
+    redisReply* reply = (redisReply*)redisCommand(context,"SREM %u:admin %u",gid,uid);
+    badReply(reply,"delAdmin");
 
     freeReplyObject(reply);
     return;

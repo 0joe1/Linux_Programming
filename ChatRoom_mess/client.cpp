@@ -14,16 +14,20 @@
 
 #define MAXEVENTS 20
 
-
 const char* blank = "                                   ";
 const char* friend_requests = "friend_requests.txt";
 const char* group_requests  = "group_requests.txt";
 const char* prvchat_message = "prvchat_message.txt";
+const char* grpchat_message = "grpchat_message";
+const char* temp_aft        = "tmp.txt";
 
 int sfd;
 bool islog;
 uint32_t myid;
 uint32_t talkto;
+
+uint32_t blocked;
+uint32_t block_list[1000];
 
 
 enum tasks {
@@ -34,12 +38,15 @@ enum tasks {
     ADDFRIEND,
     DELFRIEND,
     FRIENDREQUEST,
-    GROUPCHAT,
     CREATGROUP,
+    GROUPCHAT,
     SHOWGROUP,
     ADDMEMBER,
+    KICKMEMBER,
+    ADDADMIN,
+    DELADMIN,
     ADDGROUP,
-    GROUPREQUEST
+    GROUPREQUEST,
 };
 
 pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
@@ -47,15 +54,6 @@ pthread_mutex_t mtx   = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  colog = PTHREAD_COND_INITIALIZER;
 pthread_cond_t  cm    = PTHREAD_COND_INITIALIZER;
 
-
-bool isNumeric(std::string const &str)
-{
-    auto it = str.begin();
-    while (it != str.end() && std::isdigit(*it)) {
-        it++;
-    }
-    return !str.empty() && it == str.end();
-}
 
 void sendone(int sfd) {
     std::string msg;
@@ -131,6 +129,35 @@ void load_prvchat_message(uint32_t id)
     std::rename("temp_prvchat_message.txt",filename.c_str());
 }
 
+void load_grpchat_message(uint32_t id)
+{
+    std::string filename = grpchat_message + std::to_string(myid) + ".txt";
+    std::string tmpfilename = "tmp" + filename;
+    std::ifstream file(filename);
+    std::ofstream tempFile(tmpfilename);
+    if (file.is_open())
+    {
+        std::string line;
+        while (getline(file,line))
+        {
+            chatMsg msg;
+            std::istringstream record(line);
+            record >> msg.gid >> msg.fid >> msg.content;
+            if (msg.gid == id)
+                std::cout << msg.fid << ": " << msg.content << std::endl;
+            else
+                tempFile << line << std::endl;
+        }
+    }
+    else
+    {
+        puts("error when open file");
+    }
+    file.close();
+    tempFile.close();
+    std::remove(filename.c_str());
+    std::rename(tmpfilename.c_str(),filename.c_str());
+}
 void friChat(int fd)
 {
     Msg msg;
@@ -149,39 +176,34 @@ void friChat(int fd)
     printf("--------与用户%d的聊天(按Q退出)-----------\n",talkto);
     load_prvchat_message(talkto);
     std::string content;
-    std::cin >> content;
+    getline(std::cin,content);
     while (content != "Q")
     {
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
-        std::cin >> content;
+        getline(std::cin,content);
     }
     talkto = 0;
 }
 
-void groupChat(int fd)
+void groupChat(int fd,uint32_t gid)
 {
     Msg msg;
     msg.flag = GROUPCHAT;
 
-    msg.uid = myid;
-    std::cout << "想在哪个组织进行公开发言" << std::endl;
-    scanf("%u",&msg.touid);
-    while (msg.touid <= 0){
-        std::cout << "请输入大于0的id号" << std::endl;
-        scanf("%u",&msg.touid);
-    }
-    getchar();
-    talkto = msg.touid;
+    msg.uid   =  myid;
+    msg.touid =  gid;
+    talkto    =  msg.touid;
 
     printf("--------在群%d内的聊天(按Q退出)-----------\n",talkto);
+    load_grpchat_message(msg.touid);
     std::string content;
-    std::cin >> content;
+    getline(std::cin,content);
     while (content != "Q")
     {
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
-        std::cin >> content;
+        getline(std::cin,content);
     }
     talkto = 0;
 }
@@ -336,15 +358,56 @@ void createGroup(int fd)
     sendMsg(fd,msg.toStr().c_str());
 }
 
-void addMember(int fd)
+void addMember(int fd,uint32_t gid)
 {
     Msg msg;
     msg.flag = ADDMEMBER;
 
-    msg.uid = myid;
-    std::cout << "想为哪个群添加新成员呢？（输入groupid)" << std::endl;
-    scanf("%u",&msg.touid);
+    msg.uid   =  myid;
+    msg.touid =  gid;
     std::cout << "输入想拉入的新成员的id" << std::endl;
+    scanf("%u",&msg.adduid);
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
+void kickMember(int fd,uint32_t gid)
+{
+    Msg msg;
+    msg.flag = KICKMEMBER;
+
+    msg.uid   =  myid;
+    msg.touid =  gid;
+    std::cout << "输入想踢的人" << std::endl;
+    scanf("%u",&msg.adduid);
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
+void addAdmin(int fd,int gid)
+{
+    Msg msg;
+    msg.flag = ADDADMIN;
+
+    msg.uid   = myid;
+    msg.touid = gid;
+    std::cout << "输入想提拔的新干部id" << std::endl;
+    scanf("%u",&msg.adduid);
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
+void delAdmin(int fd,int gid)
+{
+    Msg msg;
+    msg.flag = DELADMIN;
+
+    msg.uid   =  myid;
+    msg.touid =  gid;
+    std::cout << "想撤销哪位委员的职务" << std::endl;
     scanf("%u",&msg.adduid);
     getchar();
 
@@ -364,14 +427,12 @@ void addGroup(int fd)
     sendMsg(fd,msg.toStr().c_str());
 }
 
-void showGroup(int fd)
+void showGroup(int fd,uint32_t gid)
 {
     Msg msg;
     msg.flag = SHOWGROUP;
 
-    std::cout << "想查看哪个组织的成员们呢,input gid" << std::endl;
-    scanf("%u",&msg.uid);
-    getchar();
+    msg.uid  =  gid;
     sendMsg(fd,msg.toStr().c_str());
 
     pthread_mutex_lock(&mtx);
@@ -403,7 +464,23 @@ void save_prvchat_message(chatMsg chatmsg)
     if (file.is_open())
     {
         std::cout << blank << chatmsg.fid << "send you a message" << std::endl;
-        std::cout << content << std::endl;
+        file << content << std::endl;
+    }
+    else
+    {
+        std::cout << "failed to open the file" << std::endl;
+    }
+    file.close();
+}
+void save_grpchat_message(chatMsg chatmsg)
+{
+    std::string filename = grpchat_message + std::to_string(myid) + ".txt";
+    std::ofstream file(filename,std::ios::app);
+
+    std::string content = std::to_string(chatmsg.gid) +" " + std::to_string(chatmsg.fid)+" "+chatmsg.content;
+    if (file.is_open())
+    {
+        std::cout << blank << chatmsg.gid << "内收到一条消息" << std::endl;
         file << content << std::endl;
     }
     else
@@ -421,6 +498,21 @@ void prv_recv(std::string buf)
     else
     {
         save_prvchat_message(chatmsg);
+    }
+}
+
+void grp_recv(std::string buf)
+{
+    if (buf == "查无此群!")
+        std::cout << "查无此群!" << std::endl;
+
+    chatMsg chatmsg(buf);
+    if (chatmsg.gid == talkto){
+        std::cout << chatmsg.fid << ":"<< chatmsg.content << std::endl;
+    }
+    else
+    {
+        save_grpchat_message(chatmsg);
     }
 }
 
@@ -577,7 +669,10 @@ void do_read(int fd)
         case DELFRIEND:
         case CREATGROUP:
         case ADDMEMBER:
+        case ADDADMIN:
+        case DELADMIN:
         case FRIENDREQUEST:
+        case KICKMEMBER:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
@@ -603,6 +698,10 @@ void do_read(int fd)
         case SHOWGROUP:
             groupShow(rmg.mg);
             break;
+        case GROUPCHAT:
+            grp_recv(rmg.mg);
+            break;
+
         //case FRIENDREQUEST:
             //std::cout << choice << std::endl;
             //friendRequest(rmg.mg);
@@ -635,18 +734,8 @@ void mainDisplay(int sfd)
     int choice;
     while (1)
     {
-        if (!islog)
-            std::cout << pre_login_content << std::endl;
-        else
-            std::cout << after_login_content << std::endl;
-
-        std::string t;
-        getline(std::cin,t);
-        if (!isNumeric(t)){
-            std::cout << "怎么有人连数字都不会输？\\流汗黄豆 (按666刷新)" << std::endl;
-            getline(std::cin,t);
-        }
-        choice = std::stoi(t);
+        uint32_t gid;
+        showMenu(&choice,&gid);
 
         switch(choice)
         {
@@ -675,8 +764,10 @@ void mainDisplay(int sfd)
                 createGroup(sfd);
                 break;
             case ADDMEMBER:
-                addMember(sfd);
+                addMember(sfd,gid);
                 break;
+            case KICKMEMBER:
+                kickMember(sfd,gid);
             case ADDGROUP:
                 addGroup(sfd);
                 break;
@@ -684,10 +775,16 @@ void mainDisplay(int sfd)
                 group_req(sfd);
                 break;
             case SHOWGROUP:
-                showGroup(sfd);
+                showGroup(sfd,gid);
                 break;
             case GROUPCHAT:
-                groupChat(sfd);
+                groupChat(sfd,gid);
+                break;
+            case ADDADMIN:
+                addAdmin(sfd,gid);
+                break;
+            case DELADMIN:
+                delAdmin(sfd,gid);
                 break;
             default:;
         }

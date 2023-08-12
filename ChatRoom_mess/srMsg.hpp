@@ -134,17 +134,20 @@ struct rMsg{
 
 struct chatMsg{
     uint32_t fid;
+    uint32_t gid{0};
     std::string content;
 
     chatMsg(std::string info){
         nlohmann::json j = nlohmann::json::parse(info);
         fid     =  j["fid"];
+        gid     =  j["gid"];
         content =  j["content"];
     }
     chatMsg() = default;
     nlohmann::json toJson(){
         nlohmann::json j;
         j["fid"] = fid;
+        j["gid"] = gid;
         j["content"] = content;
         return j;
     }

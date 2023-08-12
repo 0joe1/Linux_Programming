@@ -3,7 +3,6 @@
 #include "socket.hpp"
 #include "srMsg.hpp"
 #include "command.hpp"
-#include "menu.hpp"
 
 #define PORT 7679
 #define MAX_EVENTS 50
