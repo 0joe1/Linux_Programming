@@ -13,10 +13,11 @@
 #include "fileio.hpp"
 
 #define MAXEVENTS 20
+#define ASK 123
 
 const char* blank = "                                   ";
 const char* friend_requests = "friend_requests.txt";
-const char* group_requests  = "group_requests.txt";
+const char* group_requests  = "group_requests";
 const char* prvchat_message = "prvchat_message.txt";
 const char* grpchat_message = "grpchat_message";
 const char* temp_aft        = "tmp.txt";
@@ -26,6 +27,8 @@ bool islog;
 uint32_t myid;
 uint32_t talkto;
 
+int      sendfile;
+std::map<uint32_t,std::string> files;
 uint32_t blocked;
 uint32_t block_list[1000];
 
@@ -34,19 +37,23 @@ enum tasks {
     LOGIN,
     SIGNUP,
     FRIENDCHAT,
+    BLOCKFRIEND,
+    UNBLOCKFRIEND,
     SHOWFRIEND,
     ADDFRIEND,
     DELFRIEND,
     FRIENDREQUEST,
     CREATGROUP,
+    ADDGROUP,
+    GROUPREQUEST,
     GROUPCHAT,
     SHOWGROUP,
+    DELGROUP,
     ADDMEMBER,
     KICKMEMBER,
     ADDADMIN,
     DELADMIN,
-    ADDGROUP,
-    GROUPREQUEST,
+    SENDFILE
 };
 
 pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
@@ -66,6 +73,18 @@ std::string readone(int fd) {
     std::cout << msg << std::endl;
     return msg;
 }
+
+std::string get_yn(void)
+{
+    std::string choice;
+    getline(std::cin,choice);
+    while (choice != "y" && choice != "n"){
+        std::cout << "Please input y or n" << std::endl;
+        getline(std::cin,choice);
+    }
+    return choice;
+}
+
 
 void cliSign(int fd) {
     Msg msg;
@@ -158,6 +177,7 @@ void load_grpchat_message(uint32_t id)
     std::remove(filename.c_str());
     std::rename(tmpfilename.c_str(),filename.c_str());
 }
+
 void friChat(int fd)
 {
     Msg msg;
@@ -179,11 +199,68 @@ void friChat(int fd)
     getline(std::cin,content);
     while (content != "Q")
     {
+        //recieve file
+        if (sendfile == 1){
+            pthread_mutex_lock(&mtx);
+            msg.flag = SENDFILE;
+            std::string ans = get_yn();
+            msg.content = ans;
+            msg.adduid  = ASK;
+            sendMsg(fd,msg.toStr().c_str());
+            if (ans == "y")
+                rec_file();
+            pthread_mutex_unlock(&mtx);
+            pthread_cond_signal(&cm);
+        }
+
+        //send file
+        if (content == "sendfile"){
+            std::string filename;
+            std::cout << "请输入您要传输的文件" << std::endl;
+            std::cin >> filename;
+            sendFile(filename,msg,fd);
+            getline(std::cin,content);
+            continue;
+        }
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
         getline(std::cin,content);
     }
     talkto = 0;
+}
+
+void blockFriend(int fd)
+{
+    Msg msg;
+    msg.flag = BLOCKFRIEND;
+
+    msg.uid = myid;
+    std::cout << "请输入您想屏蔽的用户的UID" << std::endl;
+    scanf("%u",&msg.touid);
+    while (msg.touid <= 0){
+        std::cout << "请输入大于0的uid号" << std::endl;
+        scanf("%u",&msg.touid);
+    }
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
+}
+
+void unblockFriend(int fd)
+{
+    Msg msg;
+    msg.flag = UNBLOCKFRIEND;
+
+    msg.uid = myid;
+    std::cout << "请输入您想解除屏蔽的用户" << std::endl;
+    scanf("%u",&msg.touid);
+    while (msg.touid <= 0){
+        std::cout << "请输入大于0的uid号" << std::endl;
+        scanf("%u",&msg.touid);
+    }
+    getchar();
+
+    sendMsg(fd,msg.toStr().c_str());
 }
 
 void groupChat(int fd,uint32_t gid)
@@ -233,17 +310,6 @@ void addFriend(int fd)
     sendMsg(fd,msg.toStr().c_str());
 }
 
-std::string get_yn(void)
-{
-    std::string choice;
-    getline(std::cin,choice);
-    while (choice != "y" && choice != "n"){
-        std::cout << "Please input y or n" << std::endl;
-        getline(std::cin,choice);
-    }
-    return choice;
-}
-
 void friend_req(int fd)
 {
     Msg msg;
@@ -281,9 +347,10 @@ void group_req(int fd)
     Msg msg;
     msg.flag = GROUPREQUEST;
 
-    const char* temp = "temp_group_requests";
-    std::string filename = group_requests + std::to_string(myid);
-    std::string tmpfilename = temp + std::to_string(myid);
+    const char* temp = "temp";
+    std::string filename = group_requests + std::to_string(myid) + ".txt";
+
+    std::string tmpfilename = temp + filename;
 
     std::ifstream file(filename);
     std::ofstream tmpfile(tmpfilename);
@@ -291,10 +358,15 @@ void group_req(int fd)
         std::cout << "error when open group_requests file" << std::endl;
         return;
     }
+    file.seekg(0);
 
-    std::string line,choice("y");
-    while(getline(file,line))
+    std::string line;
+    std::string choice("y");
+    while(getline(file,line) || file.eof())
     {
+        if (line == "")
+            continue;
+        std::cout << line << "1234"<< std::endl;
         if (choice == "n")
         {
             tmpfile << line << std::endl;
@@ -419,9 +491,9 @@ void addGroup(int fd)
     Msg msg;
     msg.flag = ADDGROUP;
 
-    msg.touid = myid;
+    msg.uid = myid;
     std::cout << "请输入您想加入的群聊id" << std::endl;
-    scanf("%u",&msg.uid);
+    scanf("%u",&msg.touid);
     getchar();
 
     sendMsg(fd,msg.toStr().c_str());
@@ -438,6 +510,15 @@ void showGroup(int fd,uint32_t gid)
     pthread_mutex_lock(&mtx);
     pthread_cond_wait(&cm,&mtx);
     pthread_mutex_unlock(&mtx);
+}
+void delGroup(int fd,uint32_t gid)
+{
+    Msg msg;
+    msg.flag = DELGROUP;
+
+    msg.uid   = myid;
+    msg.touid = gid;
+    sendMsg(fd,msg.toStr().c_str());
 }
 
 
@@ -493,6 +574,14 @@ void prv_recv(std::string buf)
 {
     chatMsg chatmsg(buf);
     if (chatmsg.fid == talkto){
+        if (chatmsg.content == "sendfile"){
+            std::cout << "您收到了一个文件，是否接收(y/n)" << std::endl;
+            sendfile = 1;
+            pthread_mutex_lock(&mtx);
+            pthread_cond_wait(&cm,&mtx);
+            pthread_mutex_unlock(&mtx);
+            return;
+        }
         std::cout << chatmsg.fid << ":"<< chatmsg.content << std::endl;
     }
     else
@@ -606,13 +695,14 @@ void groupShow(std::string buf)
 void save_group_request(std::string buf)
 {
     groupReq gq(buf);
-    std::string filename = group_requests + std::to_string(myid);
+    std::string filename = group_requests + std::to_string(myid)+".txt";
     //std::string content  = std::to_string(gq.uid)+" "+std::to_string(gq.gid)+" "+std::to_string(gq.status);
     std::ofstream file(filename,std::ios::app);
 
     if (file.is_open())
     {
         file << buf << std::endl;
+        file.close();
     }
     else
     {
@@ -646,13 +736,52 @@ void change_status(std::string filename,uint32_t uid,uint32_t gid,int newStatus)
 
 void handle_group_request(std::string buf)
 {
-    if (buf.find("您") != std::string::npos){
-        std::cout << buf << std::endl;
+    groupReq gq(buf);
+    std::string filename = group_requests + std::to_string(myid)+".txt";
+    change_status(filename,gq.uid,gq.gid,gq.status);
+}
+
+std::streampos getFileSize(std::string filename)
+{
+    std::ifstream file("filename",std::ifstream::ate | std::ifstream::binary);
+    return file.tellg();
+}
+
+void sendFile(std::string buf)
+{
+    fileMsg fmsg(buf);
+    uint64_t fileSize = getFileSize(filename);
+    std::cout << filename << " 大小：" << fileSize << std::endl;
+
+    int64_t sent = 0;
+    std::ifstream file(filename,std::ios::binary);
+    if (!file){
+        std::cout << "error when open file" << std::endl;
         return;
     }
-    groupReq gq(buf);
-    std::string filename = group_requests + std::to_string(myid);
-    change_status(filename,gq.uid,gq.gid,gq.status);
+
+    char buffer[1024];
+    while (!file.eof())
+    {
+        int read;
+        memset(buffer,0,sizeof(buffer));
+        file.read(buffer,1024);
+        read = file.gcount();
+        msg.content.assign(buffer,read);
+        sendMsg(fd,msg.toStr().c_str());
+        sent += read;
+    }
+}
+
+
+void load_block_info(int fd)
+{
+
+}
+
+void load_info(int fd)
+{
+    load_block_info(fd);
 }
 
 void do_read(int fd)
@@ -673,6 +802,9 @@ void do_read(int fd)
         case DELADMIN:
         case FRIENDREQUEST:
         case KICKMEMBER:
+        case BLOCKFRIEND:
+        case UNBLOCKFRIEND:
+        case DELGROUP:
             std::cout << choice << std::endl;
             print_message(rmg.mg);
             break;
@@ -700,6 +832,9 @@ void do_read(int fd)
             break;
         case GROUPCHAT:
             grp_recv(rmg.mg);
+            break;
+        case SENDFILE:
+            sendFile(rmg.mg);
             break;
 
         //case FRIENDREQUEST:
@@ -748,6 +883,12 @@ void mainDisplay(int sfd)
             case FRIENDCHAT:
                 friChat(sfd);
                 break;
+            case BLOCKFRIEND:
+                blockFriend(sfd);
+                break;
+            case UNBLOCKFRIEND:
+                unblockFriend(sfd);
+                break;
             case SHOWFRIEND:
                 showFriend(sfd);
                 break;
@@ -777,6 +918,9 @@ void mainDisplay(int sfd)
             case SHOWGROUP:
                 showGroup(sfd,gid);
                 break;
+            case DELGROUP:
+                delGroup(sfd,gid);
+                break;
             case GROUPCHAT:
                 groupChat(sfd,gid);
                 break;
@@ -786,6 +930,7 @@ void mainDisplay(int sfd)
             case DELADMIN:
                 delAdmin(sfd,gid);
                 break;
+
             default:;
         }
     }

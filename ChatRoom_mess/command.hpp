@@ -9,25 +9,31 @@
 #include "thread_pool.hpp"
 #include "user_list.hpp"
 
+#define ASK 123
+
 extern std::map<uint32_t,int> fdMap;
 
 enum tasks {
     LOGIN,
     SIGNUP,
     FRIENDCHAT,
+    BLOCKFRIEND,
+    UNBLOCKFRIEND,
     SHOWFRIEND,
     ADDFRIEND,
     DELFRIEND,
     FRIENDREQUEST,
     CREATGROUP,
+    ADDGROUP,
+    GROUPREQUEST,
     GROUPCHAT,
     SHOWGROUP,
+    DELGROUP,
     ADDMEMBER,
     KICKMEMBER,
     ADDADMIN,
     DELADMIN,
-    ADDGROUP,
-    GROUPREQUEST,
+    SENDFILE
 };
 
 bool isNumeric(std::string const &str)
@@ -48,23 +54,27 @@ uint32_t readUint(int fd){
 }
 
 struct tasklist{
-    static void menu        (void*);
-    static void login       (void*);
-    static void signup      (void*);
-    static void friendChat  (void*);
-    static void showFriend  (void*);
-    static void addFriend   (void*);
-    static void friend_req  (void*);
-    static void delFriend   (void*);
-    static void creatGroup  (void*);
-    static void addMember   (void*);
-    static void kickMember  (void*);
-    static void addGroup    (void*);
-    static void group_req   (void*);
-    static void showGroup   (void*);
-    static void groupChat   (void*);
-    static void addAdmin    (void*);
-    static void delAdmin    (void*);
+    static void menu          (void*);
+    static void login         (void*);
+    static void signup        (void*);
+    static void friendChat    (void*);
+    static void showFriend    (void*);
+    static void addFriend     (void*);
+    static void friend_req    (void*);
+    static void delFriend     (void*);
+    static void creatGroup    (void*);
+    static void addMember     (void*);
+    static void kickMember    (void*);
+    static void addGroup      (void*);
+    static void group_req     (void*);
+    static void showGroup     (void*);
+    static void groupChat     (void*);
+    static void addAdmin      (void*);
+    static void delAdmin      (void*);
+    static void blockFriend   (void*);
+    static void unblockFriend (void*);
+    static void sendFile      (void*);
+    static void delGroup      (void*);
 };
 
 class Command{
@@ -241,9 +251,25 @@ void tasklist::friendChat(void* arg)
     touid = msg.touid;
     redisReply *reply = hred.get(touid);
     while (reply->type == REDIS_REPLY_NIL){
+        smsg.flag = BLOCKFRIEND;
         sendmg(cmd->fd,&smsg,"未找到该用户，请重试");
         epoll_add(cmd->fd,cmd->epfd);
         return ;
+    }
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,fuid);
+    UserList touslt(cmd->context,"userlist",INDIVIDUAL,touid);
+    UserList bklt(cmd->context,"blocklist",INDIVIDUAL,touid);
+    if (!uslt.isMember(touid) || !touslt.isMember(fuid)){
+        smsg.flag = BLOCKFRIEND;
+        sendmg(cmd->fd,&smsg,"必须互为好友才能聊天~");
+        epoll_add(cmd->fd,cmd->epfd);
+        return ;
+    }
+    if (bklt.isMember(fuid)){
+        smsg.flag = BLOCKFRIEND;
+        sendmg(cmd->fd,&smsg,"您处于对方的屏蔽力场中");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
     }
 
     chatMsg chatmsg;
@@ -255,7 +281,6 @@ void tasklist::friendChat(void* arg)
     std::string content;
     int tofd;
     if (fdMap.count(touid) == 0){
-        sendmg(cmd->fd,&smsg,"该用户未上线");
         epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
@@ -263,6 +288,53 @@ void tasklist::friendChat(void* arg)
     while ((content=hred.rpop(key)) != "" ){
         sendmg(tofd,&smsg,content);
     }
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::blockFriend(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = BLOCKFRIEND;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,msg.uid);
+    if (!uslt.isMember(msg.touid)){
+        sendmg(cmd->fd,&smsg,"首先，TA得是你的朋友");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    UserList bklt(cmd->context,"blocklist",INDIVIDUAL,msg.uid);
+    bklt.addMember(msg.touid);
+
+    sendmg(cmd->fd,&smsg,"屏蔽成功");
+    epoll_add(cmd->fd,cmd->epfd);
+}
+void tasklist::unblockFriend(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = UNBLOCKFRIEND;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    UserList uslt(cmd->context,"userlist",INDIVIDUAL,msg.uid);
+    if (!uslt.isMember(msg.touid)){
+        sendmg(cmd->fd,&smsg,"首先，TA得是你的朋友");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    UserList bklt(cmd->context,"blocklist",INDIVIDUAL,msg.uid);
+    if (!bklt.isMember(msg.touid)){
+        sendmg(cmd->fd,&smsg,"解除屏蔽成功！");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    bklt.delMember(msg.touid);
+    sendmg(cmd->fd,&smsg,"解除屏蔽成功！");
     epoll_add(cmd->fd,cmd->epfd);
 }
 
@@ -292,6 +364,29 @@ void tasklist::groupChat(void* arg)
     grlt.send_to_all(fdMap,&smsg,chatmsg.toStr());
 
     epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::sendFile(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = SENDFILE;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+    if (msg.adduid == ASK)
+    {
+        if (msg.content == "n"){
+            smsg.flag = BLOCKFRIEND;
+            std::string result = std::to_string(msg.uid) + "拒绝了您的传文件请求";
+            sendmg(cmd->fd,&smsg,result);
+            epoll_add(cmd->fd,cmd->epfd);
+            return;
+        }
+        fileMsg fmsg(msg.touid,msg.uid);
+        sendmg(cmd->fd,&smsg,fmsg.toStr().c_str());
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
 }
 
 void tasklist::showFriend(void* arg)
@@ -352,6 +447,33 @@ void tasklist::showGroup(void* arg)
     std::string result = ss.str();
     sendmg(cmd->fd,&smsg,result);
 
+    epoll_add(cmd->fd,cmd->epfd);
+}
+void tasklist::delGroup(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = DELGROUP;
+    Command *cmd = static_cast<Command*>(arg);
+
+    Msg msg(cmd->m);
+
+    UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
+    if (!grlt.hasGroup()){
+        sendmg(cmd->fd,&smsg,"该群不存在");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+    if (!grlt.isOwner(msg.uid)){
+        sendmg(cmd->fd,&smsg,"只有群主才能解散群");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    std::string content = "群" + std::to_string(msg.touid) + "已被解散";
+    grlt.send_to_all(fdMap,&smsg,content);
+    grlt.delGroup();
+
+    sendmg(cmd->fd,&smsg,"解散成功");
     epoll_add(cmd->fd,cmd->epfd);
 }
 
@@ -445,9 +567,11 @@ void tasklist::group_req(void* arg)
     if (msg.content == "n")
     {
         gq.status = 2;
+        grlt.send_to_high(fdMap,&smsg,gq.toStr());
+
+        smsg.flag = BLOCKFRIEND;
         std::string content = "您想要潜入群" + std::to_string(msg.touid) + "的幻想被" + std::to_string(msg.adduid)+"击碎了";
         sendmg(rfd,&smsg,content);
-        grlt.send_to_high(fdMap,&smsg,gq.toStr());
 
         epoll_add(cmd->fd,cmd->epfd);
         return;
@@ -645,6 +769,7 @@ void tasklist::addGroup(void *arg)
     groupReq gq(msg.uid,msg.touid);
     UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
     if (!grlt.hasGroup()){
+        smsg.flag = BLOCKFRIEND;
         sendmg(cmd->fd,&smsg,"不存在该群");
         epoll_add(cmd->fd,cmd->epfd);
         return;
@@ -653,13 +778,24 @@ void tasklist::addGroup(void *arg)
         std::string key = std::to_string(msg.uid)+":"+std::to_string(msg.touid)+":grouprequest";
         if (hred.isnull(key))
             hred.lpush(key,gq.toStr().c_str());
-        epoll_add(cmd->fd,cmd->epfd);
         return;
     }
 
     grlt.send_to_high(fdMap,&smsg,gq.toStr());
+    epoll_add(cmd->fd,cmd->epfd);
 }
-
+//void tasklist::sendFile(void* arg)
+//{
+    //rMsg smsg;
+    //smsg.flag = SENDFILE;
+//
+    //Command *cmd = static_cast<Command*>(arg);
+    //Msg msg(cmd->m);
+//
+    //sendmg(msg.touid,&smsg,msg.content);
+    //epoll_add(cmd->fd,cmd->epfd);
+//}
+//
 
 void test(void *arg)
 {
@@ -688,6 +824,12 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case FRIENDCHAT:
             work->func = funcs.friendChat;
+            break;
+        case BLOCKFRIEND:
+            work->func = funcs.blockFriend;
+            break;
+        case UNBLOCKFRIEND:
+            work->func = funcs.unblockFriend;
             break;
         case SHOWFRIEND:
             work->func = funcs.showFriend;
@@ -719,6 +861,9 @@ unique_ptr<TASK> Command::parse_command()
         case SHOWGROUP:
             work->func = funcs.showGroup;
             break;
+        case DELGROUP:
+            work->func = funcs.delGroup;
+            break;
         case GROUPCHAT:
             work->func = funcs.groupChat;
             break;
@@ -727,6 +872,9 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case DELADMIN:
             work->func = funcs.delAdmin;
+            break;
+        case SENDFILE:
+            work->func = funcs.sendFile;
             break;
         default:;
     }

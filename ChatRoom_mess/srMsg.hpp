@@ -154,6 +154,30 @@ struct chatMsg{
     std::string toStr() { return this->toJson().dump(); }
 };
 
+struct fileMsg{
+    uint32_t sender;
+    uint32_t receiver;
+    std::string content;
+
+    fileMsg(uint32_t sender_,uint32_t receiver_):
+        sender(sender_),receiver(receiver_){}
+    fileMsg(std::string info){
+        nlohmann::json j = nlohmann::json::parse(info);
+        sender   =  j["sender"];
+        receiver =  j["receiver"];
+        content  =  j["content"];
+    }
+    fileMsg() = default;
+    nlohmann::json toJson(){
+        nlohmann::json j;
+        j["sender"]    =  sender;
+        j["receiver"]  =  receiver;
+        j["content"]   =  content;
+        return j;
+    }
+    std::string toStr() { return this->toJson().dump(); }
+};
+
 struct groupReq{
     uint32_t uid;
     uint32_t gid;
@@ -162,6 +186,7 @@ struct groupReq{
     groupReq(uint32_t tuid,uint32_t tgid):
         uid(tuid),gid(tgid){}
     groupReq(std::string info){
+        std::cout << info << std::endl;
         nlohmann::json j = nlohmann::json::parse(info);
         uid     =  j["uid"];
         gid     =  j["gid"];
@@ -177,6 +202,9 @@ struct groupReq{
     }
     std::string toStr() { return this->toJson().dump(); }
 };
+
+
+
 
 void sendmg(int fd,rMsg *msg,std::string mg)
 {

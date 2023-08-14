@@ -47,6 +47,7 @@ public:
         return 0;
     }
 
+    void delGroup();
     bool hasGroup();
 
     void addMember(uint32_t uid);
@@ -235,4 +236,11 @@ void UserList::send_to_all(std::map<uint32_t, int> fdMap,rMsg* smsg,std::string 
         }
     }
 
+}
+
+void UserList::delGroup()
+{
+    redisCommand(context,"DEL %u:userlist",gid);
+    redisCommand(context,"DEL %u:admin",gid);
+    redisCommand(context,"DEL %u:owner",gid);
 }
