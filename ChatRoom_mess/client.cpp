@@ -1,4 +1,5 @@
 #include <iostream>
+#include <signal.h>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <sys/epoll.h>
@@ -13,7 +14,7 @@
 #include "fileio.hpp"
 
 #define MAXEVENTS 20
-#define ASK 123
+
 
 const char* blank = "                                   ";
 const char* friend_requests = "friend_requests.txt";
@@ -21,6 +22,7 @@ const char* group_requests  = "group_requests";
 const char* prvchat_message = "prvchat_message.txt";
 const char* grpchat_message = "grpchat_message";
 const char* temp_aft        = "tmp.txt";
+const char* rec_files       = "./rec_files/";
 
 int sfd;
 bool islog;
@@ -28,7 +30,7 @@ uint32_t myid;
 uint32_t talkto;
 
 int      sendfile;
-std::map<uint32_t,std::string> files;
+std::map<uint32_t,std::vector<std::string>> fileMap;
 uint32_t blocked;
 uint32_t block_list[1000];
 
@@ -53,7 +55,9 @@ enum tasks {
     KICKMEMBER,
     ADDADMIN,
     DELADMIN,
-    SENDFILE
+    SENDFILE,
+    ASK,
+    LOGOUT
 };
 
 pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
@@ -178,6 +182,31 @@ void load_grpchat_message(uint32_t id)
     std::rename(tmpfilename.c_str(),filename.c_str());
 }
 
+void rec_file()
+{
+    std::string buf;
+    char buffer[1024];
+
+    buf = readMsg(sfd);
+    fileMsg fmsg(buf);
+    std::string filename = fmsg.filename;
+    filename = rec_files + filename;
+
+    int64_t fileSize,recvd;
+    fileSize = fmsg.fileSize;
+    recvd =0;
+    std::ofstream file(filename,std::ios::binary);
+    while (recvd < fileSize)
+    {
+        buf = readMsg(sfd);
+        fileMsg fmsg(buf);
+        file << fmsg.content;
+        recvd += fmsg.content.size();
+    }
+    file.close();
+    std::cout << "传输成功！" << std::endl;
+}
+
 void friChat(int fd)
 {
     Msg msg;
@@ -202,10 +231,9 @@ void friChat(int fd)
         //recieve file
         if (sendfile == 1){
             pthread_mutex_lock(&mtx);
-            msg.flag = SENDFILE;
+            msg.flag = ASK;
             std::string ans = get_yn();
-            msg.content = ans;
-            msg.adduid  = ASK;
+            msg.password = ans;
             sendMsg(fd,msg.toStr().c_str());
             if (ans == "y")
                 rec_file();
@@ -218,9 +246,7 @@ void friChat(int fd)
             std::string filename;
             std::cout << "请输入您要传输的文件" << std::endl;
             std::cin >> filename;
-            sendFile(filename,msg,fd);
-            getline(std::cin,content);
-            continue;
+            fileMap[talkto].push_back(filename);
         }
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
@@ -358,22 +384,22 @@ void group_req(int fd)
         std::cout << "error when open group_requests file" << std::endl;
         return;
     }
-    file.seekg(0);
 
     std::string line;
     std::string choice("y");
-    while(getline(file,line) || file.eof())
+    while(getline(file,line))
     {
         if (line == "")
             continue;
-        std::cout << line << "1234"<< std::endl;
         if (choice == "n")
         {
             tmpfile << line << std::endl;
             continue;
         }
 
+        puts("test1");
         groupReq gq(line);
+        puts("test2");
         std::string ask = std::to_string(gq.uid) + "想要加入群聊" + std::to_string(gq.gid);
         switch(gq.status)
         {
@@ -395,6 +421,7 @@ void group_req(int fd)
         }
         std::cout << "继续读取下一条？(y/n)" << std::endl;
         choice = get_yn();
+        puts("test3");
     }
     file.close();
     tmpfile.close();
@@ -719,6 +746,8 @@ void change_status(std::string filename,uint32_t uid,uint32_t gid,int newStatus)
 
     while(getline(file,line))
     {
+        if (line == "")
+            continue;
         groupReq gq(line);
         if (gq.uid != uid || gq.gid != gid)
         {
@@ -747,11 +776,14 @@ std::streampos getFileSize(std::string filename)
     return file.tellg();
 }
 
-void sendFile(std::string buf)
+void sendFile(std::string filename,fileMsg fmsg)
 {
-    fileMsg fmsg(buf);
+    Msg msg;
+    msg.flag = SENDFILE;
+
     uint64_t fileSize = getFileSize(filename);
-    std::cout << filename << " 大小：" << fileSize << std::endl;
+    fmsg.fileSize = fileSize;
+    fmsg.filename = filename;
 
     int64_t sent = 0;
     std::ifstream file(filename,std::ios::binary);
@@ -761,16 +793,31 @@ void sendFile(std::string buf)
     }
 
     char buffer[1024];
+    int read;
     while (!file.eof())
     {
-        int read;
         memset(buffer,0,sizeof(buffer));
         file.read(buffer,1024);
         read = file.gcount();
-        msg.content.assign(buffer,read);
-        sendMsg(fd,msg.toStr().c_str());
+        fmsg.content.assign(buffer,read);
+        msg.content = fmsg.toStr().c_str();
+        sendMsg(sfd,msg.toStr().c_str());
         sent += read;
     }
+}
+
+void send_file(std::string buf)
+{
+    fileMsg fmsg(buf);
+    if (fmsg.content == "n"){
+        std::cout << std::to_string(fmsg.receiver) << "拒绝了您的传文件请求" << std::endl;
+        return;
+    }
+    std::string filename = fileMap[fmsg.receiver].back();
+    fileMap[fmsg.receiver].pop_back();
+
+    std::cout << "提示：开始向" << fmsg.receiver << "传功" << std::endl;
+    sendFile(filename,fmsg);
 }
 
 
@@ -833,8 +880,8 @@ void do_read(int fd)
         case GROUPCHAT:
             grp_recv(rmg.mg);
             break;
-        case SENDFILE:
-            sendFile(rmg.mg);
+        case ASK:
+            send_file(rmg.mg);
             break;
 
         //case FRIENDREQUEST:
@@ -936,17 +983,44 @@ void mainDisplay(int sfd)
     }
 }
 
+void log_out(int sig)
+{
+    Msg msg;
+    msg.flag = LOGOUT;
+
+    msg.uid   =  myid;
+    std::cout << "确定要退出吗？QAQ" << std::endl;
+    std::string ans = get_yn();
+
+    if (ans == "n"){
+        return;
+    }
+    islog = 0;
+    sendMsg(sfd,msg.toStr().c_str());
+    close(sfd);
+    _exit(EXIT_SUCCESS);
+}
+
 
 int main(int argc, char *argv[]) {
-
     sfd = inetConnect("127.0.0.1", "7679");
+    struct stat st;
+    if (stat(rec_files, &st) == -1) {
+      // 目录不存在,调用mkdir创建
+      mkdir(rec_files, 0755); 
+    }
+
+    struct sigaction sa;
+    sa.sa_flags = 0;
+    sa.sa_handler = log_out;
+    sigaction(SIGINT,&sa,NULL);
+
 
     pthread_t thid;
     if (pthread_create(&thid,NULL,do_epoll,NULL) != 0){
         myerr("creat thread");
     }
     mainDisplay(sfd);
-
 
     return 0;
 }

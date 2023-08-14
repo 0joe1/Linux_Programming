@@ -157,6 +157,8 @@ struct chatMsg{
 struct fileMsg{
     uint32_t sender;
     uint32_t receiver;
+    int64_t  fileSize;
+    std::string filename;
     std::string content;
 
     fileMsg(uint32_t sender_,uint32_t receiver_):
@@ -165,6 +167,8 @@ struct fileMsg{
         nlohmann::json j = nlohmann::json::parse(info);
         sender   =  j["sender"];
         receiver =  j["receiver"];
+        fileSize =  j["fileSize"];
+        filename =  j["filename"];
         content  =  j["content"];
     }
     fileMsg() = default;
@@ -172,6 +176,8 @@ struct fileMsg{
         nlohmann::json j;
         j["sender"]    =  sender;
         j["receiver"]  =  receiver;
+        j["fileSize"]  =  fileSize;
+        j["filename"]  =  filename;
         j["content"]   =  content;
         return j;
     }
@@ -186,7 +192,6 @@ struct groupReq{
     groupReq(uint32_t tuid,uint32_t tgid):
         uid(tuid),gid(tgid){}
     groupReq(std::string info){
-        std::cout << info << std::endl;
         nlohmann::json j = nlohmann::json::parse(info);
         uid     =  j["uid"];
         gid     =  j["gid"];

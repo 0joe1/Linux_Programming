@@ -9,7 +9,6 @@
 #include "thread_pool.hpp"
 #include "user_list.hpp"
 
-#define ASK 123
 
 extern std::map<uint32_t,int> fdMap;
 
@@ -33,7 +32,9 @@ enum tasks {
     KICKMEMBER,
     ADDADMIN,
     DELADMIN,
-    SENDFILE
+    SENDFILE,
+    ASK,
+    LOGOUT
 };
 
 bool isNumeric(std::string const &str)
@@ -73,8 +74,10 @@ struct tasklist{
     static void delAdmin      (void*);
     static void blockFriend   (void*);
     static void unblockFriend (void*);
+    static void askFile       (void*);
     static void sendFile      (void*);
     static void delGroup      (void*);
+    static void logout        (void*);
 };
 
 class Command{
@@ -366,27 +369,42 @@ void tasklist::groupChat(void* arg)
     epoll_add(cmd->fd,cmd->epfd);
 }
 
-void tasklist::sendFile(void* arg)
+void tasklist::askFile(void* arg)
 {
     rMsg smsg;
-    smsg.flag = SENDFILE;
+    smsg.flag = ASK;
 
     Command *cmd = static_cast<Command*>(arg);
     Msg msg(cmd->m);
-    if (msg.adduid == ASK)
-    {
-        if (msg.content == "n"){
-            smsg.flag = BLOCKFRIEND;
-            std::string result = std::to_string(msg.uid) + "拒绝了您的传文件请求";
-            sendmg(cmd->fd,&smsg,result);
-            epoll_add(cmd->fd,cmd->epfd);
-            return;
-        }
-        fileMsg fmsg(msg.touid,msg.uid);
-        sendmg(cmd->fd,&smsg,fmsg.toStr().c_str());
-        epoll_add(cmd->fd,cmd->epfd);
-        return;
-    }
+    //if (msg.adduid == ASK)
+    //{
+        //if (msg.content == "n"){
+            //smsg.flag = BLOCKFRIEND;
+            //std::string result = std::to_string(msg.uid) + "拒绝了您的传文件请求";
+            //sendmg(cmd->fd,&smsg,result);
+            //epoll_add(cmd->fd,cmd->epfd);
+            //return;
+        //}
+        //fileMsg fmsg(msg.touid,msg.uid);
+        //sendmg(cmd->fd,&smsg,fmsg.toStr().c_str());
+        //epoll_add(cmd->fd,cmd->epfd);
+        //return;
+    //}
+    fileMsg fmsg(msg.touid,msg.uid);
+    fmsg.content = msg.content;
+    sendmg(cmd->fd,&smsg,fmsg.toStr().c_str());
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::sendFile(void* arg)
+{
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    fileMsg fmsg(msg.content);
+    int tofd = fdMap[fmsg.receiver];
+    sendMsg(tofd,fmsg.toStr().c_str());
+    epoll_add(cmd->fd,cmd->epfd);
 }
 
 void tasklist::showFriend(void* arg)
@@ -403,7 +421,6 @@ void tasklist::showFriend(void* arg)
     std::stringstream ss;
     for (auto& frid : usvc)
     {
-        printf("%u\n",frid);
         int online = 0;
         if (fdMap.count(frid) > 0)
             online = 1;
@@ -562,10 +579,14 @@ void tasklist::group_req(void* arg)
     Msg msg(cmd->m);
     groupReq gq(msg.uid,msg.touid);
 
-    int rfd = fdMap[msg.uid];
     UserList grlt(cmd->context,"userlist",GROUP,msg.touid);
     if (msg.content == "n")
     {
+        int rfd;
+        if (fdMap.count(msg.uid) == 0){
+            return;
+        }
+        fdMap[msg.uid];
         gq.status = 2;
         grlt.send_to_high(fdMap,&smsg,gq.toStr());
 
@@ -802,6 +823,16 @@ void test(void *arg)
     std::cout << "test succeed" << std::endl;
 }
 
+void tasklist::logout(void* arg)
+{
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    int tofd = fdMap[msg.uid];
+    close(tofd);
+    fdMap.erase(msg.uid);
+}
+
 unique_ptr<TASK> Command::parse_command()
 {
     tasklist funcs;
@@ -873,8 +904,14 @@ unique_ptr<TASK> Command::parse_command()
         case DELADMIN:
             work->func = funcs.delAdmin;
             break;
+        case ASK:
+            work->func = funcs.askFile;
+            break;
         case SENDFILE:
             work->func = funcs.sendFile;
+            break;
+        case LOGOUT:
+            work->func = funcs.logout;
             break;
         default:;
     }
