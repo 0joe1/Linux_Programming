@@ -44,7 +44,7 @@ void input_num(int* choice)
 {
     std::string t;
     getline(std::cin,t);
-    if (!isNumeric(t)){
+    while (!isNumeric(t)){
         std::cout << "怎么有人连数字都不会输？\\流汗黄豆 (按666刷新)" << std::endl;
         getline(std::cin,t);
     }
