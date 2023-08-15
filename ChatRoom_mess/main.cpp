@@ -1,5 +1,6 @@
 #include <sys/epoll.h>
 #include <hiredis/hiredis.h>
+#include <signal.h>
 #include "socket.hpp"
 #include "srMsg.hpp"
 #include "command.hpp"
@@ -13,6 +14,11 @@ std::map<uint32_t,int> fdMap;
 
 int main(void)
 {
+    sigset_t blockset;
+    sigemptyset(&blockset);
+    sigaddset(&blockset,SIGPIPE);
+    sigprocmask(SIG_SETMASK,&blockset,NULL);
+
     thread_pool pool(TOTTASKS,TOTTHREADS);
     redisContext *c = redisConnect("127.0.0.1",6379);
     if (c==NULL || c->err)

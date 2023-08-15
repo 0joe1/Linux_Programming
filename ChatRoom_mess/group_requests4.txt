@@ -1,2 +1,0 @@
-{"gid":100,"status":2,"uid":6}
-{"gid":100,"status":0,"uid":6}

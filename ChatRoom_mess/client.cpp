@@ -5,6 +5,7 @@
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/sendfile.h>
 #include <sstream>
 #include <fstream>
 #include "menu.hpp"
@@ -29,7 +30,6 @@ bool islog;
 uint32_t myid;
 uint32_t talkto;
 
-int      sendfile;
 std::map<uint32_t,std::vector<std::string>> fileMap;
 uint32_t blocked;
 uint32_t block_list[1000];
@@ -48,6 +48,7 @@ enum tasks {
     CREATGROUP,
     ADDGROUP,
     GROUPREQUEST,
+    SENDFILE,
     GROUPCHAT,
     SHOWGROUP,
     DELGROUP,
@@ -55,7 +56,6 @@ enum tasks {
     KICKMEMBER,
     ADDADMIN,
     DELADMIN,
-    SENDFILE,
     ASK,
     LOGOUT
 };
@@ -94,14 +94,10 @@ void cliSign(int fd) {
     Msg msg;
     msg.flag = 1;
     std::cout << "Please input UID" << std::endl;
-    scanf("%u", &msg.uid);
-    while (msg.uid <= 0){
-        std::cout << "uid 必须大于0" << std::endl;
-        scanf("%u", &msg.uid);
-    }
+    input_uint(&msg.uid);
+
     myid = msg.uid;
     std::cout << "Please input your password" << std::endl;
-    getchar();
     getline(std::cin,msg.password);
 
     sendMsg(fd, msg.toStr().c_str());
@@ -228,26 +224,26 @@ void friChat(int fd)
     getline(std::cin,content);
     while (content != "Q")
     {
-        //recieve file
-        if (sendfile == 1){
-            pthread_mutex_lock(&mtx);
-            msg.flag = ASK;
-            std::string ans = get_yn();
-            msg.password = ans;
-            sendMsg(fd,msg.toStr().c_str());
-            if (ans == "y")
-                rec_file();
-            pthread_mutex_unlock(&mtx);
-            pthread_cond_signal(&cm);
-        }
-
-        //send file
-        if (content == "sendfile"){
-            std::string filename;
-            std::cout << "请输入您要传输的文件" << std::endl;
-            std::cin >> filename;
-            fileMap[talkto].push_back(filename);
-        }
+        ////recieve file
+        //if (sendfile == 1){
+            //pthread_mutex_lock(&mtx);
+            //msg.flag = ASK;
+            //std::string ans = get_yn();
+            //msg.password = ans;
+            //sendMsg(fd,msg.toStr().c_str());
+            //if (ans == "y")
+                //rec_file();
+            //pthread_mutex_unlock(&mtx);
+            //pthread_cond_signal(&cm);
+        //}
+//
+        ////send file
+        //if (content == "sendfile"){
+            //std::string filename;
+            //std::cout << "请输入您要传输的文件" << std::endl;
+            //std::cin >> filename;
+            //fileMap[talkto].push_back(filename);
+        //}
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
         getline(std::cin,content);
@@ -601,14 +597,6 @@ void prv_recv(std::string buf)
 {
     chatMsg chatmsg(buf);
     if (chatmsg.fid == talkto){
-        if (chatmsg.content == "sendfile"){
-            std::cout << "您收到了一个文件，是否接收(y/n)" << std::endl;
-            sendfile = 1;
-            pthread_mutex_lock(&mtx);
-            pthread_cond_wait(&cm,&mtx);
-            pthread_mutex_unlock(&mtx);
-            return;
-        }
         std::cout << chatmsg.fid << ":"<< chatmsg.content << std::endl;
     }
     else
@@ -770,54 +758,56 @@ void handle_group_request(std::string buf)
     change_status(filename,gq.uid,gq.gid,gq.status);
 }
 
-std::streampos getFileSize(std::string filename)
+void acceptFile(std::string buf)
 {
-    std::ifstream file("filename",std::ifstream::ate | std::ifstream::binary);
-    return file.tellg();
-}
-
-void sendFile(std::string filename,fileMsg fmsg)
-{
-    Msg msg;
-    msg.flag = SENDFILE;
-
-    uint64_t fileSize = getFileSize(filename);
-    fmsg.fileSize = fileSize;
-    fmsg.filename = filename;
-
-    int64_t sent = 0;
-    std::ifstream file(filename,std::ios::binary);
-    if (!file){
-        std::cout << "error when open file" << std::endl;
-        return;
-    }
+    std::cout << "enter" << std::endl;
+    fileMsg fmsg(buf);
+    std::string filename = "hhhh" + fmsg.filename;
 
     char buffer[1024];
-    int read;
-    while (!file.eof())
-    {
-        memset(buffer,0,sizeof(buffer));
-        file.read(buffer,1024);
-        read = file.gcount();
-        fmsg.content.assign(buffer,read);
-        msg.content = fmsg.toStr().c_str();
-        sendMsg(sfd,msg.toStr().c_str());
-        sent += read;
+    int fd = open(filename.c_str(),O_WRONLY | O_CREAT);
+    if (fd == -1){
+        myerr("error when open file");
     }
+    write(fd,"hhh",3);
+
+    write(fd,fmsg.content.c_str(),fmsg.content.size());
+    close(fd);
 }
 
-void send_file(std::string buf)
-{
-    fileMsg fmsg(buf);
-    if (fmsg.content == "n"){
-        std::cout << std::to_string(fmsg.receiver) << "拒绝了您的传文件请求" << std::endl;
-        return;
-    }
-    std::string filename = fileMap[fmsg.receiver].back();
-    fileMap[fmsg.receiver].pop_back();
 
-    std::cout << "提示：开始向" << fmsg.receiver << "传功" << std::endl;
-    sendFile(filename,fmsg);
+void sendFile(std::string filename,Msg& msg)
+{
+    msg.flag = SENDFILE;
+    sendMsg(sfd,msg.toStr().c_str());
+
+    int64_t sent = 0;
+    int fd = open(filename.c_str(),O_RDONLY);
+    if (fd == -1){
+        myerr("error when open file");
+    }
+
+    struct stat file_info;
+    fstat(fd,&file_info);
+    int data_size = file_info.st_size;
+
+    sendfile(sfd,fd,NULL,data_size);
+}
+
+void send_file(int fd)
+{
+    Msg msg;
+    msg.uid   = myid;
+    std::cout << "您想传给谁呢？" << std::endl;
+    input_uint(&msg.touid);
+
+    std::string filename;
+    std::cout << "请输入您要传输的文件" << std::endl;
+    getline(std::cin,filename);
+    msg.content = filename;
+
+    std::cout << "提示：开始向" << msg.touid << "传功" << std::endl;
+    sendFile(filename,msg);
 }
 
 
@@ -880,8 +870,8 @@ void do_read(int fd)
         case GROUPCHAT:
             grp_recv(rmg.mg);
             break;
-        case ASK:
-            send_file(rmg.mg);
+        case SENDFILE:
+            acceptFile(rmg.mg);
             break;
 
         //case FRIENDREQUEST:
@@ -962,6 +952,9 @@ void mainDisplay(int sfd)
             case GROUPREQUEST:
                 group_req(sfd);
                 break;
+            case SENDFILE:
+                send_file(sfd);
+                break;
             case SHOWGROUP:
                 showGroup(sfd,gid);
                 break;
@@ -1003,7 +996,9 @@ void log_out(int sig)
 
 
 int main(int argc, char *argv[]) {
-    sfd = inetConnect("127.0.0.1", "7679");
+    if (argc > 0){
+        sfd = inetConnect(argv[1], "7679");
+    }
     struct stat st;
     if (stat(rec_files, &st) == -1) {
       // 目录不存在,调用mkdir创建

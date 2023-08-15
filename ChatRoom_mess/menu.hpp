@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 #include <stdint.h>
+#include <unistd.h>
 const char *pre_login_content = "- 登陆[0] 注册[1] -";
 const char *after_login_content =
 "好友聊天      [2]\n"
@@ -16,6 +17,7 @@ const char *after_login_content =
 "创建群聊      [9]\n"
 "申请加群      [10]\n"
 "查看加群请求  [11]\n"
+"发送文件      [12]\n"
 "群操作[777]";
 
 const char *group_content =
@@ -27,6 +29,7 @@ const char *group_content =
 "添加 管理员  [17]\n"
 "撤销 管理员  [18]";
 
+extern int  sfd;
 extern bool islog;
 bool isNumeric(std::string const &str)
 {
@@ -40,16 +43,40 @@ bool in_aftlog_field(std::string choice_){
     int choice = std::stoi(choice_);
     return (choice >=0 && choice<=6)||(choice==777)||(choice==666);
 }
-void input_num(int* choice)
+bool input_num(int* choice)
 {
     std::string t;
     getline(std::cin,t);
     while (!isNumeric(t)){
+        if (std::cin.eof()){
+            std::cout << "强制退出" << std::endl;
+            close(sfd);
+            _exit(EXIT_SUCCESS);
+        }
         std::cout << "怎么有人连数字都不会输？\\流汗黄豆 (按666刷新)" << std::endl;
         getline(std::cin,t);
     }
     *choice = std::stoi(t);
+    return 0;
 }
+bool input_uint(uint32_t* choice)
+{
+    std::string t;
+    getline(std::cin,t);
+    while (!isNumeric(t)){
+        if (std::cin.eof()){
+            std::cout << "强制退出" << std::endl;
+            close(sfd);
+            _exit(EXIT_SUCCESS);
+            return 1;
+        }
+        std::cout << "怎么有人连数字都不会输？\\流汗黄豆 (按666刷新)" << std::endl;
+        getline(std::cin,t);
+    }
+    *choice = std::stoul(t);
+    return 0;
+}
+
 
 
 void showMenu(int* choice,uint32_t *gid)
@@ -65,8 +92,7 @@ void showMenu(int* choice,uint32_t *gid)
     }
 
     std::cout << "请输入您想要操作的群聊id" << std::endl;
-    scanf("%u",gid);
-    getchar();
+    input_uint(gid);
 
     std::cout << "选择执行的操作" << std::endl;
     std::cout << group_content << std::endl;

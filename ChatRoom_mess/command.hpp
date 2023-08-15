@@ -25,6 +25,7 @@ enum tasks {
     CREATGROUP,
     ADDGROUP,
     GROUPREQUEST,
+    SENDFILE,
     GROUPCHAT,
     SHOWGROUP,
     DELGROUP,
@@ -32,7 +33,6 @@ enum tasks {
     KICKMEMBER,
     ADDADMIN,
     DELADMIN,
-    SENDFILE,
     ASK,
     LOGOUT
 };
@@ -171,12 +171,14 @@ void tasklist::login(void* arg)
     if (password != user.password){
         smsg.mg = "密码错误";
         sendMsg(cmd->fd,smsg.toStr().c_str());
+        epoll_add(cmd->fd,cmd->epfd);
         return;
     }
     //防止重复登陆
     if (fdMap.count(uid) > 0){
         smsg.mg = "已登陆";
         sendMsg(cmd->fd,smsg.toStr().c_str());
+        epoll_add(cmd->fd,cmd->epfd);
         return;
     }
     fdMap[uid] = cmd->fd;
@@ -369,41 +371,28 @@ void tasklist::groupChat(void* arg)
     epoll_add(cmd->fd,cmd->epfd);
 }
 
-void tasklist::askFile(void* arg)
-{
-    rMsg smsg;
-    smsg.flag = ASK;
-
-    Command *cmd = static_cast<Command*>(arg);
-    Msg msg(cmd->m);
-    //if (msg.adduid == ASK)
-    //{
-        //if (msg.content == "n"){
-            //smsg.flag = BLOCKFRIEND;
-            //std::string result = std::to_string(msg.uid) + "拒绝了您的传文件请求";
-            //sendmg(cmd->fd,&smsg,result);
-            //epoll_add(cmd->fd,cmd->epfd);
-            //return;
-        //}
-        //fileMsg fmsg(msg.touid,msg.uid);
-        //sendmg(cmd->fd,&smsg,fmsg.toStr().c_str());
-        //epoll_add(cmd->fd,cmd->epfd);
-        //return;
-    //}
-    fileMsg fmsg(msg.touid,msg.uid);
-    fmsg.content = msg.content;
-    sendmg(cmd->fd,&smsg,fmsg.toStr().c_str());
-    epoll_add(cmd->fd,cmd->epfd);
-}
-
 void tasklist::sendFile(void* arg)
 {
+    rMsg smsg;
+    smsg.flag = SENDFILE;
+
     Command *cmd = static_cast<Command*>(arg);
     Msg msg(cmd->m);
 
-    fileMsg fmsg(msg.content);
-    int tofd = fdMap[fmsg.receiver];
-    sendMsg(tofd,fmsg.toStr().c_str());
+    char buffer[1024]={0};
+    ssize_t recvd_bytes = 0;
+    int tofd = fdMap[msg.touid];
+
+    fileMsg fmsg(msg.uid,msg.touid);
+    fmsg.filename = msg.content;
+
+    while((recvd_bytes = recv(cmd->fd,buffer,sizeof(buffer),0)) > 0){
+        memset(buffer,0,sizeof(buffer));
+        std::cout << buffer << std::endl;
+        fmsg.content = buffer;
+        sendmg(fmsg.receiver,&smsg,fmsg.toStr());
+    }
+
     epoll_add(cmd->fd,cmd->epfd);
 }
 
@@ -903,9 +892,6 @@ unique_ptr<TASK> Command::parse_command()
             break;
         case DELADMIN:
             work->func = funcs.delAdmin;
-            break;
-        case ASK:
-            work->func = funcs.askFile;
             break;
         case SENDFILE:
             work->func = funcs.sendFile;

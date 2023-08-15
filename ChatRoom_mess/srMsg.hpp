@@ -67,8 +67,9 @@ void sendMsg(int fd,const char* msg)
     writen(fd,(char*)&sendsize,4);
     writen(fd,msg,size);
 }
-char* readMsg(int fd)
+std::string readMsg(int fd)
 {
+    std::string ret;
     int size;
     readn(fd,(char*)&size,4);
     size = ntohl(size);
@@ -76,8 +77,10 @@ char* readMsg(int fd)
     char* buf = (char*)malloc(sizeof(char)*(size+1));
     readn(fd,buf,size);
     buf[size]='\0';
+    ret = buf;
+    free(buf);
 
-    return buf;
+    return ret;
 }
 
 struct Msg {
