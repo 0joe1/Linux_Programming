@@ -70,10 +70,20 @@ int main(void)
             {
                 cfd = accept(lfd,NULL,0);
 
-                ev.events = EPOLLIN;
+                ev.events = EPOLLIN | EPOLLHUP;
                 ev.data.fd = cfd;
                 epoll_ctl(epfd,EPOLL_CTL_ADD,cfd,&ev);
                 std::cout << "Press any key to start" << std::endl;
+            }
+            else if (evlist[i].events & EPOLLHUP)
+            {
+                close(evlist[i].data.fd);
+                for (auto it = fdMap.begin() ; it != fdMap.end() ; it++)
+                {
+                    if (it->second == evlist[i].data.fd){
+                        fdMap.erase(evlist[i].data.fd);
+                    }
+                }
             }
             else
             {
@@ -83,13 +93,10 @@ int main(void)
                 Hred red(c);
 
                 Command *command = new Command(fd,c,&pool,epfd);
-                pool.add_task(std::move(command->parse_command()));
-
-                //sleep(10);
-                //redisReply *reply = red.get(4399);
-                //std::string s = reply->str;
-                //User user(s);
-                //std::cout << user.password << std::endl;
+                unique_ptr<TASK> cmd = std::move(command->parse_command());
+                if (cmd.get() == nullptr)
+                    continue;
+                pool.add_task(std::move(cmd));
 
                 epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
             }

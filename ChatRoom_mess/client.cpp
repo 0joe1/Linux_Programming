@@ -909,7 +909,7 @@ void do_read(int fd)
         case BLOCKFRIEND:
         case UNBLOCKFRIEND:
         case DELGROUP:
-            std::cout << choice << std::endl;
+        case SENDFILE:
             print_message(rmg.mg);
             break;
         case FRIENDCHAT:

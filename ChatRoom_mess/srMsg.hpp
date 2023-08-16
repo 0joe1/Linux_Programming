@@ -79,7 +79,6 @@ ssize_t readn(int fd,char* buffer,int n)
             if (errno==EINTR)
                 continue;
             else{
-                myerr("readn");
                 return -1;
             }
         }
@@ -127,6 +126,10 @@ struct Msg {
 
     Msg(std::string info) {
         std::cout << info << std::endl;
+        if (info.size() == 0){
+            flag = -1;
+            return;
+        }
         nlohmann::json j = nlohmann::json::parse(info);
         flag     = j["flag"];
         uid      = j["uid"];

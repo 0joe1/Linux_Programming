@@ -381,6 +381,9 @@ void tasklist::sendFile(void* arg)
         write(fd,buffer,sizeof(buffer));
         memset(buffer,0,sizeof(buffer));
     }
+    int tofd = fdMap[fmsg.receiver];
+    std::string content = std::to_string(fmsg.sender) + "发送给您一条消息，请及时接收";
+    //sendmg(tofd,&smsg,"")
 
     epoll_add(cmd->fd,cmd->epfd);
 }
@@ -617,8 +620,7 @@ void tasklist::group_req(void* arg)
         if (fdMap.count(msg.uid) == 0){
             return;
         }
-        fdMap[msg.uid];
-        gq.status = 2;
+        gq.status = 1;
         grlt.send_to_high(fdMap,&smsg,gq.toStr());
 
         smsg.flag = BLOCKFRIEND;
@@ -629,7 +631,7 @@ void tasklist::group_req(void* arg)
         return;
     }
 
-    gq.status = 1;
+    gq.status = 2;
     grlt.addMember(msg.uid);
     grlt.send_to_high(fdMap,&smsg,gq.toStr());
     epoll_add(cmd->fd,cmd->epfd);
@@ -877,6 +879,7 @@ unique_ptr<TASK> Command::parse_command()
     this->m = readMsg(fd);
     Msg msg(this->m);
 
+
     int choice = msg.flag;
     work->arg = this;
     switch(choice)
@@ -952,6 +955,8 @@ unique_ptr<TASK> Command::parse_command()
         case HISTORYY:
             work->func = funcs.load_history;
             break;
+        case -1:
+            return nullptr;
         default:;
     }
     std::cout << m << std::endl;
