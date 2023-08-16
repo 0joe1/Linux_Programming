@@ -314,6 +314,7 @@ void friend_req(int fd)
     std::string filename = friend_requests + std::to_string(myid) + ".txt";
     std::string tmpfilename = temp + filename;
 
+    std::cout <<filename << std::endl;
     std::ifstream file(filename);
     std::ofstream tmpfile(tmpfilename);
     if (!file.is_open()){
@@ -616,6 +617,7 @@ void save_friend_request(std::string buf)
     uint32_t fuid = std::stoul(buf);
 
     std::string filename = friend_requests + std::to_string(myid)+".txt";
+    std::cout << filename << std::endl;
     std::ofstream file(filename,std::ios::app);
 
     if (!file.is_open()){
@@ -1071,8 +1073,11 @@ void log_out(int sig)
 
 
 int main(int argc, char *argv[]) {
-    if (argc > 0){
+    if (argc == 2){
         sfd = inetConnect(argv[1], "7679");
+    }
+    else if (argc == 3){
+        sfd = inetConnect(argv[1], argv[2]);
     }
     else
         sfd = inetConnect("127.0.0.1","7679");

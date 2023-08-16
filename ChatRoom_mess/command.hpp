@@ -382,8 +382,8 @@ void tasklist::sendFile(void* arg)
         memset(buffer,0,sizeof(buffer));
     }
     int tofd = fdMap[fmsg.receiver];
-    std::string content = std::to_string(fmsg.sender) + "发送给您一条消息，请及时接收";
-    //sendmg(tofd,&smsg,"")
+    std::string content = std::to_string(fmsg.sender) + "发送给您一个文件，请及时接收";
+    sendmg(tofd,&smsg,content);
 
     epoll_add(cmd->fd,cmd->epfd);
 }
@@ -551,13 +551,13 @@ void tasklist::addFriend(void* arg)
 
     UserList uslt(cmd->context,"userlist",INDIVIDUAL,fuid);
     UserList touslt(cmd->context,"userlist",INDIVIDUAL,touid);
+    uslt.addMember(touid);
     if (touslt.isMember(fuid)){
         smsg.flag = BLOCKFRIEND;
         epoll_add(cmd->fd,cmd->epfd);
         sendmg(cmd->fd,&smsg,"TA已经是你的伙伴啦");
         return;
     }
-    uslt.addMember(touid);
 
     int tofd;
     History history(cmd->context,msg.touid,"friendrequest",1);
