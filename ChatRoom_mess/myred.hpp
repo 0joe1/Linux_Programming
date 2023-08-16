@@ -61,6 +61,23 @@ public:
         freeReplyObject(reply);
         return ret;
     }
+
+    std::string lpop(std::string key)
+    {
+        redisReply* reply;
+        std::string ret;
+        reply = (redisReply*)redisCommand(context,"LPOP %s",key.c_str());
+
+        this->badReply(reply);
+
+        if (reply->type == REDIS_REPLY_NIL){
+            freeReplyObject(reply);
+            return "";
+        }
+        ret = reply->str;
+        freeReplyObject(reply);
+        return ret;
+    }
     bool isnull(std::string key)
     {
         redisReply* reply;
@@ -74,6 +91,15 @@ public:
         }
         freeReplyObject(reply);
         return 0;
+    }
+    int getlen(std::string key)
+    {
+        redisReply* reply;
+        reply = (redisReply*)redisCommand(context,"LLEN %s",key.c_str());
+
+        this->badReply(reply);
+
+        return reply->integer;
     }
     bool badReply(redisReply *);
 };

@@ -3,39 +3,20 @@
 #include <iostream>
 #include <stdint.h>
 #include <sys/epoll.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "srMsg.hpp"
 #include "myred.hpp"
 #include "user.hpp"
 #include "thread_pool.hpp"
 #include "user_list.hpp"
+#include "history.hpp"
 
+#define CHUNKSIZE 1024
+#define MIN(a,b) ((a<b)? a : b)
 
 extern std::map<uint32_t,int> fdMap;
-
-enum tasks {
-    LOGIN,
-    SIGNUP,
-    FRIENDCHAT,
-    BLOCKFRIEND,
-    UNBLOCKFRIEND,
-    SHOWFRIEND,
-    ADDFRIEND,
-    DELFRIEND,
-    FRIENDREQUEST,
-    CREATGROUP,
-    ADDGROUP,
-    GROUPREQUEST,
-    SENDFILE,
-    GROUPCHAT,
-    SHOWGROUP,
-    DELGROUP,
-    ADDMEMBER,
-    KICKMEMBER,
-    ADDADMIN,
-    DELADMIN,
-    ASK,
-    LOGOUT
-};
+extern const char* server_files;
 
 bool isNumeric(std::string const &str)
 {
@@ -76,8 +57,10 @@ struct tasklist{
     static void unblockFriend (void*);
     static void askFile       (void*);
     static void sendFile      (void*);
+    static void acceptFile    (void*);
     static void delGroup      (void*);
     static void logout        (void*);
+    static void load_history  (void*);
 };
 
 class Command{
@@ -106,16 +89,6 @@ public:
     unique_ptr<TASK> parse_command();
 };
 
-
-//void tasklist::menu(void* arg)
-//{
-    //Command *command = static_cast<Command*>(arg);
-    //thread_pool *pool = command->pool;
-//
-    //readMsg(command->fd);
-    //std::unique_ptr<TASK> task = command->parse_command();
-    //pool->add_task(std::move(task));
-//}
 
 redisReply* check_uexist(Hred hred,uint32_t uid,int fd,rMsg smsg,std::string value)
 {
@@ -280,8 +253,8 @@ void tasklist::friendChat(void* arg)
     chatMsg chatmsg;
     chatmsg.fid = fuid;
     chatmsg.content = msg.content;
-    std::string key = std::to_string(fuid) + ":"+ std::to_string(touid) + ":privatechat";
-    hred.lpush(key,chatmsg.toStr().c_str());
+    History history(cmd->context,msg.touid,"privatechat",20);
+    history.add_new(chatmsg.toStr());
 
     std::string content;
     int tofd;
@@ -290,9 +263,8 @@ void tasklist::friendChat(void* arg)
         return ;
     }
     tofd = fdMap[touid];
-    while ((content=hred.rpop(key)) != "" ){
-        sendmg(tofd,&smsg,content);
-    }
+    content = history.get_hismsg();
+    sendmg(tofd,&smsg,content);
     epoll_add(cmd->fd,cmd->epfd);
 }
 
@@ -363,8 +335,13 @@ void tasklist::groupChat(void* arg)
     chatmsg.fid = msg.uid;
     chatmsg.gid = msg.touid;
     chatmsg.content = msg.content;
-    std::string key = std::to_string(msg.uid) + ":"+ std::to_string(msg.touid) + ":groupchat";
-    hred.lpush(key,chatmsg.toStr().c_str());
+
+    std::vector<uint32_t> uvec = grlt.get_list();
+    for (auto user : uvec)
+    {
+        History history(cmd->context,user,"groupchat",20);
+        history.add_new(chatmsg.toStr());
+    }
 
     grlt.send_to_all(fdMap,&smsg,chatmsg.toStr());
 
@@ -379,18 +356,85 @@ void tasklist::sendFile(void* arg)
     Command *cmd = static_cast<Command*>(arg);
     Msg msg(cmd->m);
 
+    fileMsg fmsg(msg.content);
+
+    std::string dir = server_files + std::to_string(fmsg.sender) + "/" ;
+    struct stat st;
+    if (stat(dir.c_str(), &st) == -1) {
+      // 目录不存在,调用mkdir创建
+      mkdir(dir.c_str(), 0755);
+    }
+    std::string filename = dir + fmsg.filename;
+    int fd = open(filename.c_str(),O_WRONLY | O_CREAT | O_TRUNC,0755);
+    if (fd == -1){
+        myerr("error when open file");
+    }
+
     char buffer[1024]={0};
-    ssize_t recvd_bytes = 0;
-    int tofd = fdMap[msg.touid];
-
-    fileMsg fmsg(msg.uid,msg.touid);
-    fmsg.filename = msg.content;
-
-    while((recvd_bytes = recv(cmd->fd,buffer,sizeof(buffer),0)) > 0){
-        memset(buffer,0,sizeof(buffer));
+    ssize_t recvd_bytes = 0,trans = 0;
+    while(recvd_bytes < fmsg.fileSize){
+        if ((trans = recv(cmd->fd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) <= 0){
+            std::cout << "something occured" << std::endl;
+        }
+        recvd_bytes += trans;
         std::cout << buffer << std::endl;
-        fmsg.content = buffer;
-        sendmg(fmsg.receiver,&smsg,fmsg.toStr());
+        write(fd,buffer,sizeof(buffer));
+        memset(buffer,0,sizeof(buffer));
+    }
+
+    epoll_add(cmd->fd,cmd->epfd);
+}
+
+void tasklist::acceptFile(void* arg)
+{
+    rMsg smsg;
+    smsg.flag = ACCEPTFILE;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+
+    fileMsg fmsg(msg.content);
+    std::string dir = server_files + std::to_string(fmsg.sender) + "/" ;
+    struct stat st;
+    if (stat(dir.c_str(), &st) == -1) {
+        smsg.flag = BLOCKFRIEND;
+        sendmg(cmd->fd,&smsg,"你确定你没有搞错？");
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
+    }
+
+    std::string filename = dir + fmsg.filename;
+    int file_fd = open(filename.c_str(),O_RDONLY,0755);
+    if (file_fd == -1){
+        if (errno == ENOENT){
+            smsg.flag = BLOCKFRIEND;
+            sendmg(cmd->fd,&smsg,"你确定你没有搞错？");
+            epoll_add(cmd->fd,cmd->epfd);
+            return;
+        }
+        myerr("error when open file");
+    }
+    struct stat file_info;
+    fstat(file_fd,&file_info);
+    ssize_t data_size = file_info.st_size;
+
+    fileMsg fm(fmsg.sender,fmsg.receiver);
+    fm.filename = fmsg.filename;
+    fm.fileSize = data_size;
+
+    sendmg(cmd->fd,&smsg,fm.toStr());
+
+    char buffer[1024]={0};
+    ssize_t recvd_bytes = 0,trans = 0;
+    ssize_t offset = 0;
+
+    while (offset < data_size)
+    {
+        ssize_t send_bytes = MIN(CHUNKSIZE,data_size-offset);
+        trans = read(file_fd,buffer,send_bytes);
+        std::cout << buffer << std::endl;
+        write(cmd->fd,buffer,trans);
+        offset += trans;
     }
 
     epoll_add(cmd->fd,cmd->epfd);
@@ -503,7 +547,9 @@ void tasklist::addFriend(void* arg)
     freeReplyObject(reply);
 
     UserList uslt(cmd->context,"userlist",INDIVIDUAL,fuid);
-    if (uslt.isMember(touid)){
+    UserList touslt(cmd->context,"userlist",INDIVIDUAL,touid);
+    if (touslt.isMember(fuid)){
+        smsg.flag = BLOCKFRIEND;
         epoll_add(cmd->fd,cmd->epfd);
         sendmg(cmd->fd,&smsg,"TA已经是你的伙伴啦");
         return;
@@ -511,22 +557,18 @@ void tasklist::addFriend(void* arg)
     uslt.addMember(touid);
 
     int tofd;
-    std::string key = std::to_string(touid) + ":friendrequest";
-    std::string content;
-    if ((content = hred.rpop(key)) == ""){
-        content = std::to_string(fuid);
-        hred.lpush(key,content);
-    }
+    History history(cmd->context,msg.touid,"friendrequest",1);
+    history.add_new(std::to_string(fuid));
+
     if (fdMap.count(touid) == 0){
         epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
 
     tofd = fdMap[touid];
-    content = hred.rpop(key);
+    std::string content = history.get_hismsg();
 
     sendmg(tofd,&smsg,content);
-
     epoll_add(cmd->fd,cmd->epfd);
 }
 
@@ -794,23 +836,6 @@ void tasklist::addGroup(void *arg)
     grlt.send_to_high(fdMap,&smsg,gq.toStr());
     epoll_add(cmd->fd,cmd->epfd);
 }
-//void tasklist::sendFile(void* arg)
-//{
-    //rMsg smsg;
-    //smsg.flag = SENDFILE;
-//
-    //Command *cmd = static_cast<Command*>(arg);
-    //Msg msg(cmd->m);
-//
-    //sendmg(msg.touid,&smsg,msg.content);
-    //epoll_add(cmd->fd,cmd->epfd);
-//}
-//
-
-void test(void *arg)
-{
-    std::cout << "test succeed" << std::endl;
-}
 
 void tasklist::logout(void* arg)
 {
@@ -820,6 +845,28 @@ void tasklist::logout(void* arg)
     int tofd = fdMap[msg.uid];
     close(tofd);
     fdMap.erase(msg.uid);
+}
+
+void tasklist::load_history(void* arg)
+{
+    rMsg smsg;
+
+    Command *cmd = static_cast<Command*>(arg);
+    Msg msg(cmd->m);
+    std::string content;
+
+    smsg.flag = HISTORYPRICHAT;
+    History prichat_history(cmd->context,msg.uid,"privatechat",20);
+    while ((content = prichat_history.get_hismsg()) != ""){
+        sendmg(cmd->fd,&smsg,content);
+    }
+    smsg.flag = HISTORYGRPCHAT;
+    History grpchat_history(cmd->context,msg.uid,"groupchat",20);
+    while ((content = grpchat_history.get_hismsg()) != ""){
+        sendmg(cmd->fd,&smsg,content);
+    }
+
+    epoll_add(cmd->fd,cmd->epfd);
 }
 
 unique_ptr<TASK> Command::parse_command()
@@ -896,8 +943,14 @@ unique_ptr<TASK> Command::parse_command()
         case SENDFILE:
             work->func = funcs.sendFile;
             break;
+        case ACCEPTFILE:
+            work->func = funcs.acceptFile;
+            break;
         case LOGOUT:
             work->func = funcs.logout;
+            break;
+        case HISTORYY:
+            work->func = funcs.load_history;
             break;
         default:;
     }

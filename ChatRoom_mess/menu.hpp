@@ -18,16 +18,17 @@ const char *after_login_content =
 "申请加群      [10]\n"
 "查看加群请求  [11]\n"
 "发送文件      [12]\n"
+"接收文件      [13]\n"
 "群操作[777]";
 
 const char *group_content =
-"群内沟通     [12]\n"
-"查看群成员   [13]\n"
-"解散 群      [14]\n"
-"添加 群成员  [15]\n"
-"踢   群成员  [16]\n"
-"添加 管理员  [17]\n"
-"撤销 管理员  [18]";
+"群内沟通     [14]\n"
+"查看群成员   [15]\n"
+"解散 群      [16]\n"
+"添加 群成员  [17]\n"
+"踢   群成员  [18]\n"
+"添加 管理员  [19]\n"
+"撤销 管理员  [20]";
 
 extern int  sfd;
 extern bool islog;
@@ -76,8 +77,6 @@ bool input_uint(uint32_t* choice)
     *choice = std::stoul(t);
     return 0;
 }
-
-
 
 void showMenu(int* choice,uint32_t *gid)
 {

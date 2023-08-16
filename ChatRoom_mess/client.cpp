@@ -15,13 +15,16 @@
 #include "fileio.hpp"
 
 #define MAXEVENTS 20
+#define CHUNKSIZE 1024
+#define MIN(a,b) ((a<b)? a : b)
 
 
 const char* blank = "                                   ";
-const char* friend_requests = "friend_requests.txt";
+const char* friend_requests = "friend_requests";
 const char* group_requests  = "group_requests";
-const char* prvchat_message = "prvchat_message.txt";
+const char* prvchat_message = "prvchat_message";
 const char* grpchat_message = "grpchat_message";
+const char* temp            = "temp";
 const char* temp_aft        = "tmp.txt";
 const char* rec_files       = "./rec_files/";
 
@@ -35,35 +38,14 @@ uint32_t blocked;
 uint32_t block_list[1000];
 
 
-enum tasks {
-    LOGIN,
-    SIGNUP,
-    FRIENDCHAT,
-    BLOCKFRIEND,
-    UNBLOCKFRIEND,
-    SHOWFRIEND,
-    ADDFRIEND,
-    DELFRIEND,
-    FRIENDREQUEST,
-    CREATGROUP,
-    ADDGROUP,
-    GROUPREQUEST,
-    SENDFILE,
-    GROUPCHAT,
-    SHOWGROUP,
-    DELGROUP,
-    ADDMEMBER,
-    KICKMEMBER,
-    ADDADMIN,
-    DELADMIN,
-    ASK,
-    LOGOUT
-};
-
 pthread_mutex_t mlog  = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mtx   = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t load  = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mfile = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  colog = PTHREAD_COND_INITIALIZER;
 pthread_cond_t  cm    = PTHREAD_COND_INITIALIZER;
+pthread_cond_t  cl    = PTHREAD_COND_INITIALIZER;
+pthread_cond_t  cfile = PTHREAD_COND_INITIALIZER;
 
 
 void sendone(int sfd) {
@@ -109,8 +91,7 @@ void cliLog(int fd) {
     Msg msg;
     msg.flag = 0;
     std::cout << "Please input UID" << std::endl;
-    scanf("%u", &msg.uid);
-    getchar();
+    input_uint(&msg.uid);
     myid = msg.uid;
 
     std::cout << "Please input your password" << std::endl;
@@ -125,9 +106,11 @@ void cliLog(int fd) {
 void load_prvchat_message(uint32_t id)
 {
     std::vector<chatMsg> messages;
-    std::string filename = std::to_string(myid)+prvchat_message;
+    std::string filename = prvchat_message + std::to_string(myid) + ".txt";
+    std::string tempfilename = temp + filename;
+
     std::ifstream file(filename);
-    std::ofstream tempFile("temp_prvchat_message.txt");
+    std::ofstream tempFile(tempfilename);
     if (file.is_open())
     {
         std::string line;
@@ -145,7 +128,7 @@ void load_prvchat_message(uint32_t id)
     file.close();
     tempFile.close();
     std::remove(prvchat_message);
-    std::rename("temp_prvchat_message.txt",filename.c_str());
+    std::rename(tempfilename.c_str(),filename.c_str());
 }
 
 void load_grpchat_message(uint32_t id)
@@ -222,31 +205,17 @@ void friChat(int fd)
     load_prvchat_message(talkto);
     std::string content;
     getline(std::cin,content);
+    if (content.size() > 30){
+        std::cout << "一次发送的长度不能超过30" << std::endl;
+    }
     while (content != "Q")
     {
-        ////recieve file
-        //if (sendfile == 1){
-            //pthread_mutex_lock(&mtx);
-            //msg.flag = ASK;
-            //std::string ans = get_yn();
-            //msg.password = ans;
-            //sendMsg(fd,msg.toStr().c_str());
-            //if (ans == "y")
-                //rec_file();
-            //pthread_mutex_unlock(&mtx);
-            //pthread_cond_signal(&cm);
-        //}
-//
-        ////send file
-        //if (content == "sendfile"){
-            //std::string filename;
-            //std::cout << "请输入您要传输的文件" << std::endl;
-            //std::cin >> filename;
-            //fileMap[talkto].push_back(filename);
-        //}
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
         getline(std::cin,content);
+        if (content.size() > 30){
+            std::cout << "一次发送的长度不能超过30" << std::endl;
+        }
     }
     talkto = 0;
 }
@@ -298,11 +267,17 @@ void groupChat(int fd,uint32_t gid)
     load_grpchat_message(msg.touid);
     std::string content;
     getline(std::cin,content);
+    if (content.size() > 30){
+        std::cout << "一次发送的长度不能超过30" << std::endl;
+    }
     while (content != "Q")
     {
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
         getline(std::cin,content);
+        if (content.size() > 30){
+            std::cout << "一次发送的长度不能超过30" << std::endl;
+        }
     }
     talkto = 0;
 }
@@ -326,8 +301,7 @@ void addFriend(int fd)
 
     msg.uid = myid;
     std::cout << "请选择您想要的伙伴(uid)" << std::endl;
-    scanf("%u",&msg.touid);
-    getchar();
+    input_uint(&msg.touid);
 
     sendMsg(fd,msg.toStr().c_str());
 }
@@ -337,31 +311,44 @@ void friend_req(int fd)
     Msg msg;
     msg.flag = FRIENDREQUEST;
 
-    int reqfd;
-    if ((reqfd = open(friend_requests,O_RDONLY))==-1){
-        if (errno == ENOENT){
-            std::cout << "暂时还没有好友请求" << std::endl;
-            return;
-        }
-        else
-            myerr("open friend_requests");
+    std::string filename = friend_requests + std::to_string(myid) + ".txt";
+    std::string tmpfilename = temp + filename;
+
+    std::ifstream file(filename);
+    std::ofstream tmpfile(tmpfilename);
+    if (!file.is_open()){
+        std::cout << "error when open friend_requests file" << std::endl;
+        return;
     }
 
-    char* buffer = (char*)malloc(sizeof(uint32_t));
+    std::string line;
+    std::string choice("y");
+    while(getline(file,line))
+    {
+        if (line == "")
+            continue;
+        if (choice == "n")
+        {
+            tmpfile << line << std::endl;
+            continue;
+        }
+        uint32_t fuid = std::stoul(line);
+        std::string request = std::to_string(fuid) + " wants you! Accept?(y/n)";
+        std::cout << request << std::endl;
+        std::string ac = get_yn();
+        msg.uid     =  myid;
+        msg.touid   =  fuid;
+        msg.content =  ac;
+        sendMsg(fd,msg.toStr().c_str());
 
-    read(reqfd,buffer,sizeof(uint32_t));
+        std::cout << "继续读取下一条？(y/n)" << std::endl;
+        choice = get_yn();
+    }
 
-    uint32_t fuid = strtoul(buffer,NULL,10);
-    std::string request = std::to_string(fuid) + " wants you! Accept?(y/n)";
-    std::cout << request << std::endl;
-    std::string choice = get_yn();
-
-    msg.uid     =  myid;
-    msg.touid   =  fuid;
-    msg.content =  choice;
-    sendMsg(fd,msg.toStr().c_str());
-
-    deleteBefore(&reqfd,friend_requests);
+    file.close();
+    tmpfile.close();
+    std::remove(filename.c_str());
+    std::rename(filename.c_str(),tmpfilename.c_str());
 }
 
 void group_req(int fd)
@@ -369,9 +356,7 @@ void group_req(int fd)
     Msg msg;
     msg.flag = GROUPREQUEST;
 
-    const char* temp = "temp";
     std::string filename = group_requests + std::to_string(myid) + ".txt";
-
     std::string tmpfilename = temp + filename;
 
     std::ifstream file(filename);
@@ -561,7 +546,7 @@ void print_message(std::string buf)
 
 void save_prvchat_message(chatMsg chatmsg)
 {
-    std::string filename = std::to_string(myid)+prvchat_message;
+    std::string filename = prvchat_message + std::to_string(myid) + ".txt";
     std::ofstream file(filename,std::ios::app);
 
     std::string content = std::to_string(chatmsg.fid)+" "+chatmsg.content;
@@ -626,20 +611,18 @@ void save_friend_request(std::string buf)
         std::cout << buf << std::endl;
         return;
     }
+    std::cout << "您有一条好友申请，please及时查收哦～" << std::endl;
 
-    // know who send me request
     uint32_t fuid = std::stoul(buf);
 
-    int fd;
-    if ((fd = open("friend_requests.txt",O_WRONLY | O_APPEND | O_CREAT,0600)) == -1){
-        myerr("open friend_requests");
-    }
-    int ret = write(fd,std::to_string(fuid).c_str(),sizeof(uint32_t));
-    if (ret == -1){
-        myerr("write friend_requests");
-    }
+    std::string filename = friend_requests + std::to_string(myid)+".txt";
+    std::ofstream file(filename,std::ios::app);
 
-    close(fd);
+    if (!file.is_open()){
+        std::cout << "failed to open the file" << std::endl;
+    }
+    file << " " << fuid << std::endl;
+    file.close();
 }
 void friendShow(std::string buf)
 {
@@ -758,45 +741,67 @@ void handle_group_request(std::string buf)
     change_status(filename,gq.uid,gq.gid,gq.status);
 }
 
+void print_star(ssize_t big,ssize_t small){
+    static int milestone;
+    int add = big/10;
+    if (small > milestone)
+    {
+        printf("*");
+        milestone += add;
+    }
+}
+
 void acceptFile(std::string buf)
 {
     std::cout << "enter" << std::endl;
     fileMsg fmsg(buf);
-    std::string filename = "hhhh" + fmsg.filename;
+    std::string filename = rec_files + fmsg.filename;
 
-    char buffer[1024];
-    int fd = open(filename.c_str(),O_WRONLY | O_CREAT);
+    std::cout << "开始接收" << filename << std::endl;
+    int fd = open(filename.c_str(),O_WRONLY | O_TRUNC | O_CREAT,0755);
     if (fd == -1){
         myerr("error when open file");
     }
-    write(fd,"hhh",3);
 
-    write(fd,fmsg.content.c_str(),fmsg.content.size());
+    char buffer[1024]={0};
+    ssize_t recvd_bytes = 0,trans = 0,round = 0;
+    while(recvd_bytes < fmsg.fileSize){
+        if ((trans = recv(sfd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) <= 0){
+            std::cout << "something occured" << std::endl;
+        }
+        recvd_bytes += trans;
+        write(fd,buffer,sizeof(buffer));
+        memset(buffer,0,sizeof(buffer));
+        print_star(fmsg.fileSize,recvd_bytes);
+    }
+    printf("\n");
+    std::cout << "接收完毕" << std::endl;
+
     close(fd);
 }
 
 
-void sendFile(std::string filename,Msg& msg)
+void sendFile(std::string filename,int fd,ssize_t fileSize)
 {
-    msg.flag = SENDFILE;
-    sendMsg(sfd,msg.toStr().c_str());
 
     int64_t sent = 0;
-    int fd = open(filename.c_str(),O_RDONLY);
-    if (fd == -1){
-        myerr("error when open file");
+    ssize_t offset = 0;
+
+    while (offset < fileSize)
+    {
+        ssize_t send_bytes = MIN(CHUNKSIZE,fileSize-offset);
+        ssize_t tran = sendfile(sfd,fd,NULL,send_bytes);
+        offset += tran;
+        print_star(fileSize,offset);
     }
-
-    struct stat file_info;
-    fstat(fd,&file_info);
-    int data_size = file_info.st_size;
-
-    sendfile(sfd,fd,NULL,data_size);
+    printf("\n");
+    close(fd);
 }
 
 void send_file(int fd)
 {
     Msg msg;
+    msg.flag = SENDFILE;
     msg.uid   = myid;
     std::cout << "您想传给谁呢？" << std::endl;
     input_uint(&msg.touid);
@@ -804,21 +809,83 @@ void send_file(int fd)
     std::string filename;
     std::cout << "请输入您要传输的文件" << std::endl;
     getline(std::cin,filename);
-    msg.content = filename;
+    int file_fd = open(filename.c_str(),O_RDONLY);
+    if (file_fd == -1){
+        myerr("error when open file");
+    }
+    struct stat file_info;
+    fstat(file_fd,&file_info);
+    ssize_t data_size = file_info.st_size;
+
+    std::cout << data_size << std::endl;
+    fileMsg fmsg(msg.uid,msg.touid);
+    fmsg.filename = filename;
+    fmsg.fileSize = data_size;
+
+    msg.content = fmsg.toStr();
+    sendMsg(sfd,msg.toStr().c_str());
 
     std::cout << "提示：开始向" << msg.touid << "传功" << std::endl;
-    sendFile(filename,msg);
+    sendFile(filename,file_fd,data_size);
+    std::cout << "传功成功，等待对方接收" << std::endl;
+}
+
+void accept_file(int fd)
+{
+    Msg msg;
+    msg.flag = ACCEPTFILE;
+    msg.uid   = myid;
+    std::cout << "想接收谁的文件？" << std::endl;
+    input_uint(&msg.touid);
+
+    std::string filename;
+    std::cout << "请输入您要接收的文件名" << std::endl;
+    getline(std::cin,filename);
+
+    fileMsg fmsg(msg.touid,msg.uid);
+    fmsg.filename = filename;
+    msg.content = fmsg.toStr();
+
+    sendMsg(sfd,msg.toStr().c_str());
 }
 
 
-void load_block_info(int fd)
+void accept_load_info(std::string buf)
 {
+    pthread_mutex_lock(&load);
 
+    if (buf == ""){
+        pthread_mutex_unlock(&load);
+        pthread_cond_signal(&cl);
+        return;
+    }
+
+    rMsg rmg(buf);
+    switch(rmg.flag)
+    {
+        case HISTORYPRICHAT:
+            save_prvchat_message(rmg.mg);
+            break;
+        case HISTORYGRPCHAT:
+            save_grpchat_message(rmg.mg);
+            break;
+    }
+
+    pthread_mutex_unlock(&load);
+    pthread_cond_signal(&cl);
 }
 
-void load_info(int fd)
+void load_info()
 {
-    load_block_info(fd);
+    Msg msg;
+    msg.flag = HISTORYY;
+    msg.uid = myid;
+    sendMsg(sfd,msg.toStr().c_str());
+
+    struct timespec wait_time{2,0};
+    pthread_mutex_lock(&load);
+    pthread_cond_timedwait(&cl,&load,&wait_time);
+    pthread_mutex_unlock(&load);
 }
 
 void do_read(int fd)
@@ -846,7 +913,6 @@ void do_read(int fd)
             print_message(rmg.mg);
             break;
         case FRIENDCHAT:
-            std::cout << choice << std::endl;
             prv_recv(rmg.mg);
             break;
         case ADDFRIEND:
@@ -870,8 +936,13 @@ void do_read(int fd)
         case GROUPCHAT:
             grp_recv(rmg.mg);
             break;
-        case SENDFILE:
+        case ACCEPTFILE:
             acceptFile(rmg.mg);
+            break;
+        case HISTORYPRICHAT:
+        case HISTORYGRPCHAT:
+            std::cout << choice << std::endl;
+            accept_load_info(t);
             break;
 
         //case FRIENDREQUEST:
@@ -906,6 +977,7 @@ void mainDisplay(int sfd)
     int choice;
     while (1)
     {
+        load_info();
         uint32_t gid;
         showMenu(&choice,&gid);
 
@@ -955,6 +1027,9 @@ void mainDisplay(int sfd)
             case SENDFILE:
                 send_file(sfd);
                 break;
+            case ACCEPTFILE:
+                accept_file(sfd);
+                break;
             case SHOWGROUP:
                 showGroup(sfd,gid);
                 break;
@@ -999,6 +1074,8 @@ int main(int argc, char *argv[]) {
     if (argc > 0){
         sfd = inetConnect(argv[1], "7679");
     }
+    else
+        sfd = inetConnect("127.0.0.1","7679");
     struct stat st;
     if (stat(rec_files, &st) == -1) {
       // 目录不存在,调用mkdir创建

@@ -10,6 +10,34 @@
 
 #include "myerror.hpp"
 
+enum tasks {
+    LOGIN,
+    SIGNUP,
+    FRIENDCHAT,
+    BLOCKFRIEND,
+    UNBLOCKFRIEND,
+    SHOWFRIEND,
+    ADDFRIEND,
+    DELFRIEND,
+    FRIENDREQUEST,
+    CREATGROUP,
+    ADDGROUP,
+    GROUPREQUEST,
+    SENDFILE,
+    ACCEPTFILE,
+    GROUPCHAT,
+    SHOWGROUP,
+    DELGROUP,
+    ADDMEMBER,
+    KICKMEMBER,
+    ADDADMIN,
+    DELADMIN,
+    ASK,
+    LOGOUT,
+    HISTORYY,
+    HISTORYPRICHAT,
+    HISTORYGRPCHAT
+};
 
 ssize_t writen(int fd,const char* msg,int n)
 {
@@ -47,10 +75,13 @@ ssize_t readn(int fd,char* buffer,int n)
             return totRead;
         }
         if (numRead==-1){
+            puts("error readn");
             if (errno==EINTR)
                 continue;
-            else
+            else{
+                myerr("readn");
                 return -1;
+            }
         }
 
         totRead += numRead;
@@ -75,7 +106,10 @@ std::string readMsg(int fd)
     size = ntohl(size);
 
     char* buf = (char*)malloc(sizeof(char)*(size+1));
-    readn(fd,buf,size);
+    if(readn(fd,buf,size) == -1){
+        close(fd);
+        return "";
+    }
     buf[size]='\0';
     ret = buf;
     free(buf);

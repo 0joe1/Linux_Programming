@@ -7,10 +7,9 @@
 
 class User
 {
-
 public:
-    std::string password;
     uint32_t uid;
+    std::string password;
     std::string name;
     bool status = 0;
 

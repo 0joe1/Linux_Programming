@@ -1,6 +1,7 @@
 #include <sys/epoll.h>
 #include <hiredis/hiredis.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include "socket.hpp"
 #include "srMsg.hpp"
 #include "command.hpp"
@@ -12,12 +13,20 @@
 
 std::map<uint32_t,int> fdMap;
 
+const char* server_files       = "./server_files/";
+
 int main(void)
 {
     sigset_t blockset;
     sigemptyset(&blockset);
     sigaddset(&blockset,SIGPIPE);
     sigprocmask(SIG_SETMASK,&blockset,NULL);
+
+    struct stat st;
+    if (stat(server_files, &st) == -1) {
+      // 目录不存在,调用mkdir创建
+      mkdir(server_files, 0755);
+    }
 
     thread_pool pool(TOTTASKS,TOTTHREADS);
     redisContext *c = redisConnect("127.0.0.1",6379);

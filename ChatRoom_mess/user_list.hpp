@@ -4,6 +4,7 @@
 #include "user.hpp"
 #include "myred.hpp"
 #include "srMsg.hpp"
+#include "history.hpp"
 
 enum choice{
     INDIVIDUAL,
@@ -223,6 +224,8 @@ void UserList::send_to_high(std::map<uint32_t,int> fdMap,rMsg* smsg,std::string 
 void UserList::send_to_all(std::map<uint32_t, int> fdMap,rMsg* smsg,std::string content)
 {
     if (fdMap[owner] > 0){
+        History history(context,owner,"groupchat",20);
+        history.get_hismsg();
         int ownfd = fdMap[owner];
         sendmg(ownfd,smsg,content);
     }
@@ -231,6 +234,8 @@ void UserList::send_to_all(std::map<uint32_t, int> fdMap,rMsg* smsg,std::string 
     {
         if (fdMap[member]>0)
         {
+            History history(context,owner,"groupchat",20);
+            history.get_hismsg();
             int memfd = fdMap[member];
             sendmg(memfd,smsg,content);
         }
