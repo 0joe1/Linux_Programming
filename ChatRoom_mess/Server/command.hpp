@@ -373,7 +373,8 @@ void tasklist::sendFile(void* arg)
     char buffer[1024]={0};
     ssize_t recvd_bytes = 0,trans = 0;
     while(recvd_bytes < fmsg.fileSize){
-        if ((trans = recv(cmd->fd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) <= 0){
+        if ((trans = recv(cmd->fd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) < 0){
+            myerr("file");
             std::cout << "something occured" << std::endl;
         }
         recvd_bytes += trans;
