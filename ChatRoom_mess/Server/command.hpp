@@ -374,7 +374,8 @@ void tasklist::sendFile(void* arg)
     ssize_t recvd_bytes = 0,trans = 0;
     while(recvd_bytes < fmsg.fileSize){
         if ((trans = recv(cmd->fd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) < 0){
-            myerr("file");
+            if (errno == EWOULDBLOCK || errno == EINTR)
+                continue;
             std::cout << "something occured" << std::endl;
         }
         recvd_bytes += trans;
