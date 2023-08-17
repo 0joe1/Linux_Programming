@@ -310,7 +310,7 @@ void friend_req(int fd)
     std::ifstream file(filename);
     std::ofstream tmpfile(tmpfilename);
     if (!file.is_open()){
-        std::cout << "error when open friend_requests file" << std::endl;
+        std::cout << "暂无好友请求" << std::endl;
         return;
     }
 

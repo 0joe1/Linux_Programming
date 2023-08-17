@@ -203,6 +203,7 @@ void tasklist::signup(void* arg)
         t = "注册出问题";
     //rMsg2Str(&smsg,t.c_str(),&str);
     //std::cout << smsg.mg << std::endl;
+    fdMap[uid] = cmd->fd;
     smsg.mg = t;
     sendMsg(cmd->fd,smsg.toStr().c_str());
 
@@ -556,6 +557,7 @@ void tasklist::addFriend(void* arg)
 
     redisReply* reply;
     if((reply = check_uexist(hred,touid,cmd->fd,smsg,"未发现该用户")) == NULL){
+        std::cout << "未发现" << std::endl;
         epoll_add(cmd->fd,cmd->epfd);
         return;
     }
@@ -577,6 +579,7 @@ void tasklist::addFriend(void* arg)
     history.add_new(std::to_string(fuid));
 
     if (fdMap.count(touid) == 0){
+        std::cout << "对方不在线" << std::endl;
         epoll_add(cmd->fd,cmd->epfd);
         return ;
     }
@@ -584,6 +587,10 @@ void tasklist::addFriend(void* arg)
     tofd = fdMap[touid];
     std::string content = history.get_hismsg();
 
+    std::cout << "ddddsssss" << std::endl;
+    std::cout << content << std::endl;
+    std::cout <<"tofd" << tofd << std::endl;
+    std::cout << "sssss" << std::endl;
     sendmg(tofd,&smsg,content);
     epoll_add(cmd->fd,cmd->epfd);
 }

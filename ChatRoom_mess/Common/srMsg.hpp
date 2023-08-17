@@ -52,6 +52,8 @@ ssize_t writen(int fd,const char* msg,int n)
         if (numWritten<0){
             if (numWritten==-1 && errno==EINTR)
                 continue;
+            if (numWritten == -1 && errno==EWOULDBLOCK)
+                continue;
             else{
                 printf("here");
                 return -1;
@@ -77,7 +79,7 @@ ssize_t readn(int fd,char* buffer,int n)
             return totRead;
         }
         if (numRead==-1){
-            if (errno==EINTR)
+            if (errno==EINTR || errno == EWOULDBLOCK)
                 continue;
             else{
                 puts("error readn");
@@ -108,7 +110,7 @@ std::string readMsg(int fd)
 
     char* buf = (char*)malloc(sizeof(char)*(size+1));
     if(readn(fd,buf,size) == -1){
-        if (errno == EAGAIN || errno == EWOULDBLOCK){
+        if (errno == EAGAIN){
             puts("read all exist");
             return "";
         }
