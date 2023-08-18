@@ -782,18 +782,20 @@ void acceptFile(std::string buf)
     }
 
     char buffer[1024]={0};
-    ssize_t recvd_bytes = 0,trans = 0,round = 0;
-    int flags = fcntl(fd,F_GETFL);
-    fcntl(fd,F_SETFL,flags | O_NONBLOCK);
+    ssize_t recvd_bytes = 0,trans = 0,written = 0;
+    //int flags = fcntl(fd,F_GETFL);
+    //fcntl(fd,F_SETFL,flags | O_NONBLOCK);
     while(recvd_bytes < fmsg.fileSize){
-        if ((trans = recv(sfd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) < 0){
+        if ((trans = readn(sfd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes))) < 0){
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR){
+                std::cout << trans << std::endl;
                 continue;
             }
             std::cout << "something occured" << std::endl;
         }
+        std::cout << "recvd_bytes" << recvd_bytes << std::endl;
         recvd_bytes += trans;
-        write(fd,buffer,trans);
+        writen(fd,buffer,trans);
         memset(buffer,0,sizeof(buffer));
         print_star(fmsg.fileSize,recvd_bytes);
     }

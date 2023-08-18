@@ -454,11 +454,11 @@ void tasklist::acceptFile(void* arg)
     while (offset < data_size)
     {
         ssize_t send_bytes = MIN(CHUNKSIZE,data_size-offset);
-        trans = read(file_fd,buffer,send_bytes);
+        trans = readn(file_fd,buffer,send_bytes);
         if (trans == -1 && (errno == EWOULDBLOCK|| errno == EINTR || errno == EAGAIN) ){
             continue;
         }
-        write(cmd->fd,buffer,trans);
+        writen(cmd->fd,buffer,trans);
         offset += trans;
         memset(buffer,0,sizeof(buffer));
     }
