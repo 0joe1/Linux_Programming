@@ -785,7 +785,7 @@ void acceptFile(std::string buf)
     char buffer[1024]={0};
     ssize_t recvd_bytes = 0,trans = 0,round = 0;
     while(recvd_bytes < fmsg.fileSize){
-        if ((trans = recv(sfd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) <= 0){
+        if ((trans = recv(sfd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) < 0){
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR){
                 continue;
             }
