@@ -106,6 +106,20 @@ public:
         freeReplyObject(reply);
         return 0;
     }
+    std::vector<std::string> getkeys(std::string key)
+    {
+        redisReply* reply;
+        reply = (redisReply*)redisCommand(context,"KEYS *%s",key.c_str());
+        std::vector<std::string> retlist;
+        for (size_t i = 0; i < reply->elements ; i++)
+        {
+            std::string t = reply->element[i]->str;
+            retlist.push_back(t);
+        }
+
+        freeReplyObject(reply);
+        return retlist;
+    }
     int getlen(std::string key)
     {
         redisReply* reply;

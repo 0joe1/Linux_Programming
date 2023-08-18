@@ -79,13 +79,16 @@ int main(void)
                 epoll_ctl(epfd,EPOLL_CTL_ADD,cfd,&ev);
                 std::cout << "Press any key to start" << std::endl;
             }
-            else if (evlist[i].events & EPOLLRDHUP)
+            else if (evlist[i].events & (EPOLLHUP | EPOLLRDHUP))
             {
+                std::cout << "EPOLLRDHUP" << std::endl;
+                epoll_ctl(epfd,EPOLL_CTL_DEL,evlist[i].data.fd,&ev);
                 close(evlist[i].data.fd);
                 for (auto it = fdMap.begin() ; it != fdMap.end() ; it++)
                 {
                     if (it->second == evlist[i].data.fd){
-                        fdMap.erase(evlist[i].data.fd);
+                        fdMap.erase(it->first);
+                        std::cout << "erase " << std::endl;
                     }
                 }
             }
@@ -94,15 +97,14 @@ int main(void)
                 int fd = evlist[i].data.fd;
                 ev.events = EPOLLIN;
                 ev.data.fd = fd;
-                Hred red(c);
 
                 Command *command = new Command(fd,c,&pool,epfd);
                 unique_ptr<TASK> cmd = std::move(command->parse_command());
                 if (cmd.get() == nullptr)
                     continue;
+                epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
                 pool.add_task(std::move(cmd));
 
-                epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
             }
         }
     }

@@ -147,6 +147,7 @@ void tasklist::login(void* arg)
         return;
     }
     //防止重复登陆
+    std::cout << "fdmap count" << fdMap.count(uid) << std::endl;
     if (fdMap.count(uid) > 0){
         smsg.mg = "已登陆";
         sendMsg(cmd->fd,smsg.toStr().c_str());
@@ -372,23 +373,34 @@ void tasklist::sendFile(void* arg)
 
     char buffer[1024]={0};
     ssize_t recvd_bytes = 0,trans = 0;
+
+    std::cout << fmsg.fileSize << std::endl;
     while(recvd_bytes < fmsg.fileSize){
         if ((trans = recv(cmd->fd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) < 0){
-            if (errno == EWOULDBLOCK || errno == EINTR)
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR){
+                std::cout << fmsg.fileSize << std::endl;
+                std::cout <<"block" << recvd_bytes << std::endl;
                 continue;
+            }
             std::cout << "something occured" << std::endl;
         }
         recvd_bytes += trans;
         std::cout << buffer << std::endl;
-        write(fd,buffer,sizeof(buffer));
+        write(fd,buffer,trans);
         memset(buffer,0,sizeof(buffer));
+    }
+    History history(cmd->context,fmsg.sender,"sendfile",100,fmsg.receiver);
+    history.add_new(fmsg.filename);
+
+    if (fdMap.count(fmsg.receiver) == 0){
+        epoll_add(cmd->fd,cmd->epfd);
+        return;
     }
     int tofd = fdMap[fmsg.receiver];
     std::string content = std::to_string(fmsg.sender) + "发送给您一个文件"+ fmsg.filename+ "，请及时接收";
+    std::cout << content << std::endl;
     sendmg(tofd,&smsg,content);
 
-    History history(cmd->context,fmsg.sender,"sendfile",100,fmsg.receiver);
-    history.add_new(fmsg.filename);
 
     epoll_add(cmd->fd,cmd->epfd);
 }
@@ -866,7 +878,10 @@ void tasklist::logout(void* arg)
     Command *cmd = static_cast<Command*>(arg);
     Msg msg(cmd->m);
 
-    int tofd = fdMap[msg.uid];
+    int tofd;
+    if (fdMap.count(msg.uid) > 0){
+        tofd =  fdMap[msg.uid];
+    }
     close(tofd);
     fdMap.erase(msg.uid);
 }
@@ -894,6 +909,19 @@ void tasklist::load_history(void* arg)
     while ((content = frdreq_history.get_hismsg()) != ""){
         sendmg(cmd->fd,&smsg,content);
     }
+    //smsg.flag = HISTORYFILE;
+    //History file_history(cmd->context,msg.uid,"sendfile",100);
+    //std::vector<std::string> keylist = file_history.get_keylist();
+    //for (auto key : keylist)
+    //{
+        //std::cout << key << std::endl;
+        //History fh(key);
+        //while ((content = fh.get_hismsg()) != ""){
+            //content = key+content;
+            //std::cout << content << std::endl;
+            //sendmg(cmd->fd,&smsg,content);
+        //}
+    //}
 
     epoll_add(cmd->fd,cmd->epfd);
 }

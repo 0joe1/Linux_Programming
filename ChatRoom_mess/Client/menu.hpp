@@ -82,7 +82,7 @@ bool input_uint(uint32_t* choice)
 {
     std::string t;
     getline(std::cin,t);
-    while (!isNumeric(t)){
+    while (!isNumeric(t) || t=="0"){
         if (std::cin.eof()){
             std::cout << "强制退出" << std::endl;
             logout();
@@ -94,6 +94,18 @@ bool input_uint(uint32_t* choice)
         getline(std::cin,t);
     }
     *choice = std::stoul(t);
+    return 0;
+}
+
+bool input_string(std::string& s)
+{
+    getline(std::cin,s);
+    if (std::cin.eof()){
+        std::cout << "强制退出" << std::endl;
+        logout();
+        close(sfd);
+        return 1;
+    }
     return 0;
 }
 

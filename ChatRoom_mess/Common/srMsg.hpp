@@ -39,6 +39,7 @@ enum tasks {
     HISTORYPRICHAT,
     HISTORYGRPCHAT,
     HISTORYFRIREQUEST,
+    HISTORYFILE,
 };
 
 ssize_t writen(int fd,const char* msg,int n)

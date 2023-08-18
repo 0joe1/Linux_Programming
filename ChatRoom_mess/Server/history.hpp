@@ -7,10 +7,10 @@
 
 class History{
 private:
-    uint32_t      uid;
-    std::string   key;
-    Hred          hred;
-    int           limit;
+    uint32_t      uid = 0;
+    std::string   key = "";
+    Hred          hred = 0;
+    int           limit = 0;
     uint32_t      requid{0};
 
 public:
@@ -21,6 +21,8 @@ public:
             else
                 key = std::to_string(uid) + type_ + std::to_string(requid);
         }
+    History(std::string k):
+        key(k){}
 
     bool history_empty(){
         return hred.isnull(key);
@@ -31,8 +33,11 @@ public:
 
     void add_new(std::string value);
 
-    std::string get_hismsg(){
+    std::string get_hismsg(int option=0){
         return hred.rpop(key);
+    }
+    std::vector<std::string> get_keylist(){
+        return hred.getkeys(key);
     }
 };
 

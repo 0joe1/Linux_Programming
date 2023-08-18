@@ -65,10 +65,10 @@ std::string readone(int fd) {
 std::string get_yn(void)
 {
     std::string choice;
-    getline(std::cin,choice);
+    input_string(choice);
     while (choice != "y" && choice != "n"){
         std::cout << "Please input y or n" << std::endl;
-        getline(std::cin,choice);
+        input_string(choice);
     }
     return choice;
 }
@@ -82,7 +82,7 @@ void cliSign(int fd) {
 
     myid = msg.uid;
     std::cout << "Please input your password" << std::endl;
-    getline(std::cin,msg.password);
+    input_string(msg.password);
 
     sendMsg(fd, msg.toStr().c_str());
     pthread_mutex_lock(&mlog);
@@ -201,7 +201,7 @@ void friChat(int fd)
     printf("--------与用户%d的聊天(按Q退出)-----------\n",talkto);
     load_prvchat_message(talkto);
     std::string content;
-    getline(std::cin,content);
+    input_string(content);
     if (content.size() > 30){
         std::cout << "一次发送的长度不能超过30" << std::endl;
     }
@@ -209,7 +209,12 @@ void friChat(int fd)
     {
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
-        getline(std::cin,content);
+        input_string(content);
+        if (std::cin.eof()){
+            std::cout << "强制退出" << std::endl;
+            close(fd);
+            return;
+        }
         if (content.size() > 30){
             std::cout << "一次发送的长度不能超过30" << std::endl;
         }
@@ -258,7 +263,12 @@ void groupChat(int fd,uint32_t gid)
     printf("--------在群%d内的聊天(按Q退出)-----------\n",talkto);
     load_grpchat_message(msg.touid);
     std::string content;
-    getline(std::cin,content);
+    input_string(content);
+    if (std::cin.eof()){
+        std::cout << "强制退出" << std::endl;
+        close(fd);
+        return;
+    }
     if (content.size() > 30){
         std::cout << "一次发送的长度不能超过30" << std::endl;
     }
@@ -266,7 +276,7 @@ void groupChat(int fd,uint32_t gid)
     {
         msg.content = content;
         sendMsg(fd,msg.toStr().c_str());
-        getline(std::cin,content);
+        input_string(content);
         if (content.size() > 30){
             std::cout << "一次发送的长度不能超过30" << std::endl;
         }
@@ -327,7 +337,6 @@ void friend_req(int fd)
         }
         uint32_t fuid = std::stoul(line);
         std::string request = std::to_string(fuid) + " wants you! Accept?(y/n)";
-        std::cout << request << std::endl;
         std::string ac = get_yn();
         msg.uid     =  myid;
         msg.touid   =  fuid;
@@ -544,7 +553,8 @@ void save_prvchat_message(chatMsg chatmsg)
     std::string content = std::to_string(chatmsg.fid)+" "+chatmsg.content;
     if (file.is_open())
     {
-        std::cout << blank << chatmsg.fid << "send you a message" << std::endl;
+        if (chatmsg.fid != myid)
+            std::cout << blank << chatmsg.fid << "send you a message" << std::endl;
         file << content << std::endl;
     }
     else
@@ -561,7 +571,8 @@ void save_grpchat_message(chatMsg chatmsg)
     std::string content = std::to_string(chatmsg.gid) +" " + std::to_string(chatmsg.fid)+" "+chatmsg.content;
     if (file.is_open())
     {
-        std::cout << blank << chatmsg.gid << "内收到一条消息" << std::endl;
+        if (chatmsg.fid != myid)
+            std::cout << blank << chatmsg.gid << "内收到一条消息" << std::endl;
         file << content << std::endl;
     }
     else
@@ -760,13 +771,13 @@ void acceptFile(std::string buf)
     ssize_t recvd_bytes = 0,trans = 0,round = 0;
     while(recvd_bytes < fmsg.fileSize){
         if ((trans = recv(sfd,buffer,MIN(CHUNKSIZE,fmsg.fileSize-recvd_bytes),0)) <= 0){
-            if (errno == EWOULDBLOCK || errno == EINTR){
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR){
                 continue;
             }
             std::cout << "something occured" << std::endl;
         }
         recvd_bytes += trans;
-        write(fd,buffer,sizeof(buffer));
+        write(fd,buffer,trans);
         memset(buffer,0,sizeof(buffer));
         print_star(fmsg.fileSize,recvd_bytes);
     }
@@ -777,7 +788,7 @@ void acceptFile(std::string buf)
 }
 
 
-void sendFile(std::string filename,int fd,ssize_t fileSize)
+void sendFile(int fd,ssize_t fileSize)
 {
 
     int64_t sent = 0;
@@ -804,25 +815,30 @@ void send_file(int fd)
 
     std::string filename;
     std::cout << "请输入您要传输的文件" << std::endl;
-    getline(std::cin,filename);
+    input_string(filename);
     int file_fd = open(filename.c_str(),O_RDONLY);
     if (file_fd == -1){
-        myerr("error when open file");
+        std::cout << "error when open file" << std::endl;
+        return;
     }
     struct stat file_info;
     fstat(file_fd,&file_info);
+    if (S_ISDIR(file_info.st_mode)){
+        std::cout << "不能传目录" << std::endl;
+        return;
+    }
     ssize_t data_size = file_info.st_size;
 
     std::cout << data_size << std::endl;
     fileMsg fmsg(msg.uid,msg.touid);
-    fmsg.filename = filename;
+    fmsg.filename = basename(filename.c_str());
     fmsg.fileSize = data_size;
 
     msg.content = fmsg.toStr();
     sendMsg(sfd,msg.toStr().c_str());
 
     std::cout << "提示：开始向" << msg.touid << "传功" << std::endl;
-    sendFile(filename,file_fd,data_size);
+    sendFile(file_fd,data_size);
     std::cout << "传功成功，等待对方接收" << std::endl;
 }
 
@@ -836,7 +852,7 @@ void accept_file(int fd)
 
     std::string filename;
     std::cout << "请输入您要接收的文件名" << std::endl;
-    getline(std::cin,filename);
+    input_string(filename);
 
     fileMsg fmsg(msg.touid,msg.uid);
     fmsg.filename = filename;
@@ -865,7 +881,7 @@ void accept_load_info(std::string buf)
         case HISTORYGRPCHAT:
             save_grpchat_message(rmg.mg);
             break;
-        case FRIENDREQUEST:
+        case HISTORYFRIREQUEST:
             save_friend_request(rmg.mg);
             break;
     }
@@ -909,6 +925,8 @@ void do_read(int fd)
         case UNBLOCKFRIEND:
         case DELGROUP:
         case SENDFILE:
+        case HISTORYFILE:
+            std::cout << "print message" << std::endl;
             print_message(rmg.mg);
             break;
         case FRIENDCHAT:
@@ -923,7 +941,7 @@ void do_read(int fd)
             friendShow(rmg.mg);
             break;
         case ADDGROUP:
-            std::cout << choice << std::endl;
+            std::cout << "                       有人加群"<<std::endl;
             save_group_request(rmg.mg);
             break;
         case GROUPREQUEST:
@@ -1105,4 +1123,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-                                                                         
