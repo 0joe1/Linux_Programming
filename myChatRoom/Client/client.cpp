@@ -634,7 +634,6 @@ void save_friend_request(std::string buf)
 
 
     std::string filename = friend_requests + std::to_string(myid)+".txt";
-    std::cout << filename << std::endl;
     std::ofstream file(filename,std::ios::app);
 
     if (!file.is_open()){
