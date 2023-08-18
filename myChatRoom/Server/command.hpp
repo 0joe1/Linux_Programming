@@ -75,16 +75,6 @@ private:
 public:
     Command(int cmfd,redisContext *cmcontext,thread_pool* cmpool,int cmepfd):
         fd(cmfd),context(cmcontext),pool(cmpool),epfd(cmepfd){}
-    /*
-    thread_pool *getPool(){
-        return this->pool;
-    }
-    redisContext *getContext(){
-        return this->context;
-    }
-    bool getStatus(){
-        return this->status;
-    }*/
     unique_ptr<TASK> parse_command();
 };
 
@@ -390,7 +380,9 @@ void tasklist::sendFile(void* arg)
         memset(buffer,0,sizeof(buffer));
     }
     History history(cmd->context,fmsg.sender,"sendfile",100,fmsg.receiver);
+    History hhistory(cmd->context,fmsg.sender,"hissendfile",100,fmsg.receiver,1);
     history.add_new(fmsg.filename);
+    hhistory.add_new(fmsg.filename);
 
     if (fdMap.count(fmsg.receiver) == 0){
         std::cout << "接收方不在线" << std::endl;
@@ -891,6 +883,7 @@ void tasklist::logout(void* arg)
 
 void tasklist::load_history(void* arg)
 {
+    std::cout <<"history"<< std::endl;
     rMsg smsg;
 
     Command *cmd = static_cast<Command*>(arg);
@@ -913,19 +906,18 @@ void tasklist::load_history(void* arg)
         sendmg(cmd->fd,&smsg,content);
     }
     //smsg.flag = HISTORYFILE;
-    //History file_history(cmd->context,msg.uid,"sendfile",100);
+    //History file_history(cmd->context,0,"hissendfile",100,msg.uid,1);
     //std::vector<std::string> keylist = file_history.get_keylist();
     //for (auto key : keylist)
     //{
         //std::cout << key << std::endl;
         //History fh(key);
         //while ((content = fh.get_hismsg()) != ""){
-            //content = key+content;
             //std::cout << content << std::endl;
             //sendmg(cmd->fd,&smsg,content);
         //}
     //}
-
+//
     epoll_add(cmd->fd,cmd->epfd);
 }
 

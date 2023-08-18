@@ -899,9 +899,6 @@ void accept_load_info(std::string buf)
         case HISTORYFRIREQUEST:
             save_friend_request(rmg.mg);
             break;
-        //case HISTORYFILE:
-            //std::cout << rmg.mg << std::endl;
-            //break;
     }
 
     pthread_mutex_unlock(&load);
@@ -943,6 +940,7 @@ void do_read(int fd)
         case UNBLOCKFRIEND:
         case DELGROUP:
         case SENDFILE:
+        case HISTORYFILE:
             std::cout << "print message" << std::endl;
             print_message(rmg.mg);
             break;
@@ -976,7 +974,6 @@ void do_read(int fd)
         case HISTORYPRICHAT:
         case HISTORYGRPCHAT:
         case HISTORYFRIREQUEST:
-        case HISTORYFILE:
             accept_load_info(t);
             break;
 

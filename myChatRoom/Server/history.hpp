@@ -14,12 +14,16 @@ private:
     uint32_t      requid{0};
 
 public:
-    History(redisContext* context_,uint32_t uid_,std::string type_,int limit_,uint32_t requid_=0):
+    History(redisContext* context_,uint32_t uid_,std::string type_,int limit_,uint32_t requid_=0,bool choice=0):
         hred(context_),uid(uid_),limit(limit_),requid(requid_){
             if (requid == 0)
                 key = std::to_string(uid) + type_;
-            else
+            else if (choice == 0)
                 key = std::to_string(uid) + type_ + std::to_string(requid);
+            else{
+                std::cout << "choice "<< std::endl;
+                key = type_ + std::to_string(requid_);
+            }
         }
     History(std::string k):
         key(k){}

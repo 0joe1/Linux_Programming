@@ -109,6 +109,7 @@ public:
     std::vector<std::string> getkeys(std::string key)
     {
         redisReply* reply;
+        std::cout << "KEYS *" << key << std::endl;
         reply = (redisReply*)redisCommand(context,"KEYS *%s",key.c_str());
         std::vector<std::string> retlist;
         for (size_t i = 0; i < reply->elements ; i++)
